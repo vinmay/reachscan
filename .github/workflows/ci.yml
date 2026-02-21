@@ -69,7 +69,7 @@ jobs:
       - name: Upload reports
         uses: actions/upload-artifact@v4
         with:
-          name: agent-scan-reports
+          name: agent-scan-reports-py${{ matrix.python-version }}
           path: ci-reports/
 
       - name: Show short summary (for logs)
