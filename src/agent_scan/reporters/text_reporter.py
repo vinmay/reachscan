@@ -1,17 +1,26 @@
-def human_report(findings):
-    lines = ["Agent Capability Report", "─" * 25, ""]
-    caps = set()
-    for f in findings:
-        for (_, ev) in f["hits"]:
-            caps.add("Execute shell commands")
+from typing import Dict, Any
+
+def human_report(results: Dict[str, Any]) -> str:
+    lines = []
+    lines.append("Agent Capability Report")
+    lines.append("=" * 23)
+    lines.append("")
+
+    caps = results.get("capabilities", [])
     if caps:
-        lines.append("This agent can:")
-        for c in sorted(caps):
-            lines.append(f"• {c}")
+        lines.append("Capabilities")
+        lines.append("-" * 12)
+        for c in caps:
+            lines.append(f"  • {c}")
         lines.append("")
-        lines.append("Possible impact:")
-        if "Execute shell commands" in caps:
-            lines.append("Local commands may be run on your machine.")
     else:
-        lines.append("No risky capabilities detected.")
+        lines.append("No detected capabilities (phase-1 checks).")
+        lines.append("")
+
+    lines.append("Possible Impact")
+    lines.append("-" * 15)
+    for imp in results.get("possible_impacts", []):
+        lines.append(f"  {imp}")
+    lines.append("")
+    lines.append(f"Scanned: {results.get('num_files_scanned', 0)} python files under {results.get('target')}")
     return "\n".join(lines)

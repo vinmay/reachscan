@@ -1,7 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "agent-scan"
 version = "0.0.1"
-dependencies = []
+description = "Agent capability scanner: tells you what your AI agent can access, change and send before it does."
+readme = "README.md"
+authors = [{name = "Vinmay Nair", email = "vinmay.nair@gmail.com"}]
+license = {text = "Apache-2.0"}
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "click"]
+dev = ["pytest", "ruff", "pipx", "click"]
+
+[project.urls]
+"Homepage" = "https://github.com/vinmay/agent-scan"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+agent-scan = "agent_scan.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

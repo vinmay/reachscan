@@ -67,6 +67,59 @@ Currently supports:
 
 ---
 
+## Installation
+
+### Option 1 — Recommended (install as a CLI tool)
+
+Install using **pipx** so it runs globally but stays isolated:
+
+```bash
+pipx install git+https://github.com/vinmay/agent-scan.git
+```
+
+Then run:
+
+```bash
+agent-scan .
+```
+
+---
+
+### Option 2 — Install from source (development)
+
+```bash
+git clone https://github.com/vinmay/agent-scan.git
+cd agent-scan
+
+python -m venv .venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
+
+pip install -e .[dev]
+```
+
+Run the example:
+
+```bash
+agent-scan examples/demo-agent
+```
+
+---
+
+### Option 3 — Run without installing
+
+```bash
+python -m agent_scan.cli examples/demo-agent
+```
+
+---
+
+## Requirements
+
+- Python 3.11+
+- pip or pipx
+
+> If `agent-scan` command is not found after installation, ensure your `pipx` or virtual environment binaries are on your PATH.
+
 ## Usage
 
 agent-scan [path] [--json] [--rules=all|core]
