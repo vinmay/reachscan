@@ -13,20 +13,25 @@ Instead of showing implementation details, it shows consequences.
 
 Example:
 
+```text
 Agent Capability Report
-───────────────────────
+=======================
 
-This agent can:
+Capabilities
+------------
+  • Read local files
+  • Send data to external servers
+  • Execute shell commands
+  • Access environment variables
 
-• Read local files
-• Send data to external servers
-• Execute shell commands
-• Access environment variables
+Risk Analysis
+-------------
+  DATA EXPOSURE
+    Local files may be transmitted externally
 
-Possible impact:
-Local files and secrets could be transmitted externally.
-
----
+  SYSTEM MODIFICATION
+    Commands may be executed on the host machine
+```
 
 ## What this is NOT
 
