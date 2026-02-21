@@ -18,3 +18,10 @@ Supported: Python agent frameworks (initially generic tool patterns)
 Why?
 Most developers give agents powerful tools without realizing the consequences.
 agent-scan makes those consequences visible.
+
+Usage:
+  agent-scan [path] [--json] [--rules=all|core]
+
+Examples:
+  agent-scan .
+  agent-scan ./examples/demo-agent --json

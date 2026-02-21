@@ -1,0 +1,7 @@
+[project]
+name = "agent-scan"
+version = "0.0.1"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "click"]
