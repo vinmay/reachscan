@@ -66,7 +66,12 @@ Currently supports:
 (Initially generic tool patterns — framework-agnostic detection)
 
 **Capabilities detected (phase-1)**  
-EXECUTE, READ, WRITE, SEND, SECRETS
+EXECUTE — ability to run shell commands or invoke system execution APIs  
+READ — ability to read local files or file-like content  
+WRITE — ability to create, modify, delete, or move files  
+SEND — ability to make outbound network requests  
+SECRETS — ability to access credentials, env vars, or secret managers  
+DYNAMIC — ability to execute dynamically generated code or perform dynamic imports
 
 ---
 
