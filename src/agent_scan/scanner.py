@@ -4,11 +4,14 @@ over Python files under a given path and returns a normalized report object.
 """
 
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from agent_scan.detectors.registry import get_detectors, call_detector
 from agent_scan.detectors.base import CapabilityFinding
 from agent_scan.analysis.finding_enrichment import enrich_finding
 from agent_scan.analysis.impact import analyze_combined_capabilities
+from agent_scan.source_loader import ProgressCallback
+from agent_scan.source_loader import resolve_target
+from agent_scan import detectors  # noqa: F401 - ensures detector modules register themselves
 
 def _gather_py_files(path: Path) -> List[Path]:
     """Return list of .py files under path (or single file if path is file)."""
@@ -40,7 +43,11 @@ def _normalize_finding(f: CapabilityFinding) -> Dict[str, Any]:
         "confidence": getattr(f, "confidence", None),
     }
 
-def scan_path(path: Path, ruleset: str = "core") -> Dict[str, Any]:
+def scan_path(
+    path: Path,
+    ruleset: str = "core",
+    progress_callback: Optional[ProgressCallback] = None,
+) -> Dict[str, Any]:
     """
     Run all registered detectors over the given path and return a structured report.
 
@@ -64,12 +71,19 @@ def scan_path(path: Path, ruleset: str = "core") -> Dict[str, Any]:
 
     findings: List[Dict[str, Any]] = []
 
+    total_files = len(py_files)
+    if progress_callback:
+        progress_callback("analysis_scan", 0, f"0/{total_files} files")
+
     # run detectors over files
-    for p in py_files:
+    for idx, p in enumerate(py_files, start=1):
         try:
             src = p.read_text(encoding="utf-8")
         except Exception:
             # skip files we can't read
+            if progress_callback:
+                pct = int((idx / total_files) * 100) if total_files else 100
+                progress_callback("analysis_scan", pct, f"{idx}/{total_files} files")
             continue
 
         for name, detector in detectors.items():
@@ -81,6 +95,13 @@ def scan_path(path: Path, ruleset: str = "core") -> Dict[str, Any]:
                 normalized = _normalize_finding(f)
                 enriched = enrich_finding(normalized)
                 findings.append({"detector": name, "finding": enriched})
+
+        if progress_callback:
+            pct = int((idx / total_files) * 100) if total_files else 100
+            progress_callback("analysis_scan", pct, f"{idx}/{total_files} files")
+
+    if progress_callback and total_files == 0:
+        progress_callback("analysis_scan", 100, "0/0 files")
 
     # aggregate capabilities
     capability_keys = sorted({entry["finding"]["capability"] for entry in findings if entry["finding"].get("capability")})
@@ -94,3 +115,18 @@ def scan_path(path: Path, ruleset: str = "core") -> Dict[str, Any]:
         "risks": risks,
     }
     return report
+
+
+def scan_target(
+    target: str | Path,
+    ruleset: str = "core",
+    progress_callback: Optional[ProgressCallback] = None,
+) -> Dict[str, Any]:
+    """
+    Scan a local path, GitHub URL, or MCP endpoint target.
+    """
+    with resolve_target(target, progress_callback=progress_callback) as resolved:
+        report = scan_path(resolved.local_path, ruleset=ruleset, progress_callback=progress_callback)
+        report["target"] = resolved.display_target
+        report["source_type"] = resolved.source_type
+        return report

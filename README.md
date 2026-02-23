@@ -45,6 +45,8 @@ To avoid confusion:
 
 **It is a capability audit.**
 
+Static analysis only: results are inferred from code patterns and do not prove runtime behavior or exploitability.
+
 ---
 
 ## Why this exists
@@ -133,12 +135,19 @@ python -m agent_scan.cli examples/demo_agent
 
 ## Usage
 
-agent-scan [path] [--json] [--rules=all|core]
+agent-scan [target] [--json] [--rules=all|core]
+
+`target` can be:
+- local file/directory path
+- GitHub repository URL (for example `https://github.com/org/repo`)
+- MCP HTTP endpoint (prefix with `mcp+`, for example `mcp+https://mcp.example.com`)
 
 ### Examples
 
-agent-scan .
-agent-scan ./examples/demo_agent --json
+- agent-scan .
+- agent-scan ./examples/demo_agent --json
+- agent-scan https://github.com/openai/openai-python --json
+- agent-scan mcp+https://mcp.example.com
 
 ---
 

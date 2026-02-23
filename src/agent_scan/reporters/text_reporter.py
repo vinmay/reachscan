@@ -53,5 +53,11 @@ def human_report(results: Dict[str, Any]) -> str:
         lines.append("  No findings detected.")
     lines.append("")
 
+    if results.get("num_files_scanned", 0) == 0:
+        lines.append("No Python files were found for analysis.")
+        lines.append("Current support: Python code only.")
+        lines.append("")
+
+    lines.append("Static analysis only: this report reflects code patterns, not runtime behavior or exploitability.")
     lines.append(f"Scanned: {results.get('num_files_scanned', 0)} python files under {results.get('target')}")
     return "\n".join(lines)
