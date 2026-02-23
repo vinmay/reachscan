@@ -71,7 +71,8 @@ READ — ability to read local files or file-like content
 WRITE — ability to create, modify, delete, or move files  
 SEND — ability to make outbound network requests  
 SECRETS — ability to access credentials, env vars, or secret managers  
-DYNAMIC — ability to execute dynamically generated code or perform dynamic imports
+DYNAMIC — ability to execute dynamically generated code or perform dynamic imports  
+AUTONOMY — ability to schedule or run background tasks without explicit user approval
 
 ---
 
