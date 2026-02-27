@@ -97,6 +97,23 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                     else:
                         # detect start/enter/add_job patterns
                         if func.attr in AUTONOMY_START_METHODS:
+                            # Guard against common false positives on .start():
+                            #   - re.Match.start() returns an integer offset, not a thread/process start
+                            #   - Span/Trace.start() in tracing libraries marks a context, not a worker
+                            if func.attr == "start":
+                                receiver = func.value
+                                receiver_name = ""
+                                if isinstance(receiver, ast.Name):
+                                    receiver_name = receiver.id.lower()
+                                elif isinstance(receiver, ast.Attribute):
+                                    receiver_name = receiver.attr.lower()
+                                if (
+                                    "match" in receiver_name
+                                    or receiver_name.endswith("_res")
+                                    or "span" in receiver_name
+                                    or "trace" in receiver_name
+                                ):
+                                    continue
                             findings.append(CapabilityFinding(
                                 capability="AUTONOMY",
                                 evidence=f"{resolved}()",

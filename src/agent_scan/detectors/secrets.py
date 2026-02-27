@@ -31,11 +31,12 @@ SECRET_CALL_ATTRS = {
     ("azure.keyvault.secrets", "SecretClient"): "azure.keyvault.secrets.SecretClient",
 }
 
-# If these names are imported directly, treat as secrets access
+# If these names are imported directly, treat as secrets access.
+# NOTE: "config" is intentionally excluded — it is too ambiguous as a bare name.
+# The legitimate decouple.config() case is caught via SECRET_CALL_ATTRS above.
 SECRET_FUNC_NAMES = {
     "getenv",
     "load_dotenv",
-    "config",
     "get_password",
     "get_secret_value",
     "get_secret",
@@ -184,11 +185,18 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
             elif isinstance(func, ast.Name):
                 name = func.id
                 full = imports.get(name)
-                if name in SECRET_FUNC_NAMES or (full and any(full.endswith(f".{n}") for n in SECRET_FUNC_NAMES)):
+                # Fire when: (a) bare name is a known secret func, (b) full import
+                # path ends with a known secret func name, or (c) full import exactly
+                # matches a SECRET_CALL_ATTRS entry (e.g. "decouple.config" imported
+                # as bare "config" via `from decouple import config`).
+                _in_attrs = full and any(
+                    full == f"{mod}.{attr}" for (mod, attr) in SECRET_CALL_ATTRS
+                )
+                if name in SECRET_FUNC_NAMES or _in_attrs or (full and any(full.endswith(f".{n}") for n in SECRET_FUNC_NAMES)):
                     # annotate getenv/config/get_secret with constant key if possible
                     key = arg_const_str(node, 0)
                     evidence = full or name
-                    if key and name in {"getenv", "config", "get_secret", "access_secret_version", "get_secret_value"}:
+                    if key and name in {"getenv", "get_secret", "access_secret_version", "get_secret_value"}:
                         evidence = f"{evidence}({key!r})"
                     findings.append(CapabilityFinding(
                         capability="SECRETS",

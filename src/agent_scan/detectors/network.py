@@ -32,6 +32,21 @@ NETWORK_CALL_ATTRS = {
 # also detect direct usage of lower-level socket functions
 SOCKET_FUNCS = {"socket", "create_connection", "connect"}
 
+# Local file-based database modules whose .connect() does NOT make a network call.
+LOCAL_DB_MODULES = {"sqlite3", "aiosqlite", "duckdb"}
+
+# Config/type objects from HTTP libraries that do NOT make a network connection.
+HTTP_CONFIG_ATTRS = {
+    "Timeout", "ClientTimeout", "HTTPTransport", "AsyncHTTPTransport",
+    "Request", "Response", "Headers", "Cookies", "Subprotocol",
+}
+
+# Function names that are plausibly an HTTP call when a URL literal is passed.
+LITERAL_URL_CALL_NAMES = {
+    "get", "post", "put", "delete", "patch", "head", "options",
+    "request", "urlopen", "open", "fetch", "send", "mount",
+}
+
 @register_detector("network")
 def scan_file(path: str, content: str) -> List[CapabilityFinding]:
     findings: List[CapabilityFinding] = []
@@ -98,25 +113,26 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                             ))
                             break
                     else:
-                        # also flag socket.create_connection or connect calls
+                        # detect socket.create_connection or .connect() calls,
+                        # but skip local file-based databases (no network involved)
                         if any(resolved.endswith(s) for s in SOCKET_FUNCS):
-                            findings.append(CapabilityFinding(
-                                capability="SEND",
-                                evidence=resolved,
-                                file=path,
-                                lineno=getattr(node, "lineno", None),
-                                confidence=0.85
-                            ))
+                            if not any(resolved.startswith(m) for m in LOCAL_DB_MODULES):
+                                findings.append(CapabilityFinding(
+                                    capability="SEND",
+                                    evidence=resolved,
+                                    file=path,
+                                    lineno=getattr(node, "lineno", None),
+                                    confidence=0.85
+                                ))
             elif isinstance(func, ast.Name):
                 # direct calls like urlopen(...) if imported via `from urllib.request import urlopen`
                 name = func.id
                 full = imports.get(name)
                 if full:
-                    # full may be urllib.request.urlopen
+                    # full may be urllib.request.urlopen — match against NETWORK_CALL_ATTRS
                     for (mod, attr), label in NETWORK_CALL_ATTRS.items():
                         full_prefix = f"{mod}.{attr}"
-                        if full.endswith(f"{mod}.{attr}") or full == full_prefix or full.startswith(mod):
-                            # rough match
+                        if full.endswith(full_prefix) or full == full_prefix or full.startswith(full_prefix):
                             findings.append(CapabilityFinding(
                                 capability="SEND",
                                 evidence=full,
@@ -126,8 +142,23 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                             ))
                             break
                     else:
-                        # generic name that resolves to a module with "request" in it
-                        if full and ("urllib" in full or "http" in full):
+                        # Catch-all for names imported from HTTP-related modules.
+                        # Require urllib.request (not urllib.parse) or "http" in path,
+                        # but exclude:
+                        #   - urllib.parse.* (URL string manipulation, no network)
+                        #   - qdrant_client.http.models.* (data-model classes, no network)
+                        #   - known config/type objects that create no connection
+                        last_part = full.rsplit(".", 1)[-1] if "." in full else full
+                        is_http_module = (
+                            "urllib.request" in full
+                            or (
+                                "http" in full
+                                and "urllib.parse" not in full
+                                and "qdrant_client.http.models" not in full
+                                and last_part not in HTTP_CONFIG_ATTRS
+                            )
+                        )
+                        if is_http_module:
                             findings.append(CapabilityFinding(
                                 capability="SEND",
                                 evidence=full,
@@ -136,29 +167,32 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                                 confidence=0.8
                             ))
 
-    # Also look for raw string URL patterns used in open network libs (heuristic)
-    # e.g., requests.get("https://example.com")
+    # Literal-URL heuristic: flag calls that receive an http(s):// string literal,
+    # but only when the called function is a known HTTP verb or method name.
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             for arg in node.args:
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     v = arg.value.strip()
                     if v.startswith("http://") or v.startswith("https://"):
-                        # attribute evidence from func if present
                         func = node.func
                         func_name = None
                         if isinstance(func, ast.Attribute):
-                            func_name = resolve_name(func)
+                            func_name = func.attr
                         elif isinstance(func, ast.Name):
-                            func_name = imports.get(func.id, func.id)
-                        evidence = func_name or "network_call_with_literal_url"
-                        findings.append(CapabilityFinding(
-                            capability="SEND",
-                            evidence=f"{evidence} -> {v}",
-                            file=path,
-                            lineno=getattr(node, "lineno", None),
-                            confidence=0.9
-                        ))
+                            func_name = func.id
+                        # Only flag when the function is a known HTTP action verb
+                        if func_name and func_name in LITERAL_URL_CALL_NAMES:
+                            resolved_name = resolve_name(func) if isinstance(func, ast.Attribute) else (imports.get(func.id, func.id) if isinstance(func, ast.Name) else None)
+                            evidence = resolved_name or func_name
+                            findings.append(CapabilityFinding(
+                                capability="SEND",
+                                evidence=f"{evidence} -> {v}",
+                                file=path,
+                                lineno=getattr(node, "lineno", None),
+                                confidence=0.9
+                            ))
+                        break  # only check first string arg per call
 
     # Deduplicate by (evidence, lineno)
     seen = set()

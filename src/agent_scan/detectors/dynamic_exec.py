@@ -78,6 +78,15 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                 name = func.id
                 full = imports.get(name)
                 if name in DYNAMIC_FUNC_NAMES or (full and any(full.endswith(f".{n}") for n in DYNAMIC_FUNC_NAMES)):
+                    # __import__("literal") is the idiomatic namespace-package boilerplate:
+                    #   __import__("pkgutil").extend_path(__path__, __name__)
+                    # It is semantically identical to a static import and carries no
+                    # dynamic execution risk — the module name is a compile-time constant.
+                    if name == "__import__":
+                        if (node.args
+                                and isinstance(node.args[0], ast.Constant)
+                                and isinstance(node.args[0].value, str)):
+                            continue
                     evidence = full or name
                     findings.append(CapabilityFinding(
                         capability="DYNAMIC",

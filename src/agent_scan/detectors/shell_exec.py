@@ -19,7 +19,11 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                 name = func.attr
                 if mod == "subprocess" and name in {"run", "Popen", "call"}:
                     results.append(CapabilityFinding("EXECUTE", f"subprocess.{name}()", path, node.lineno, 0.95))
+                # Only flag os.system() as an attribute call — bare system() is too
+                # ambiguous since any local import can shadow it (e.g. xai_sdk.chat.system).
+                elif mod == "os" and name == "system":
+                    results.append(CapabilityFinding("EXECUTE", "os.system()", path, node.lineno, 0.95))
             elif isinstance(func, ast.Name):
-                if func.id in {"system", "exec", "eval"}:
+                if func.id in {"exec", "eval"}:
                     results.append(CapabilityFinding("EXECUTE", f"{func.id}()", path, node.lineno, 0.95))
     return results

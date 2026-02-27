@@ -13,16 +13,38 @@ from agent_scan.source_loader import ProgressCallback
 from agent_scan.source_loader import resolve_target
 from agent_scan import detectors  # noqa: F401 - ensures detector modules register themselves
 
+# Directory name components that universally indicate non-agent-runtime paths.
+# Any .py file whose absolute path contains one of these as a directory part is excluded.
+_EXCLUDED_DIR_PARTS = frozenset({
+    # virtualenv / cache (original)
+    "site-packages", ".venv", "venv", "__pycache__",
+    # CI / version-control infrastructure
+    ".git", ".github",
+    # test directories
+    "tests", "test",
+    # benchmark infrastructure
+    "benchmark", "benchmarks",
+})
+
+
 def _gather_py_files(path: Path) -> List[Path]:
-    """Return list of .py files under path (or single file if path is file)."""
+    """Return list of .py files under path (or single file if path is file).
+
+    Files are excluded when any directory component of their path matches a
+    known non-agent-runtime name (CI scripts, test dirs, benchmark dirs) or
+    when the filename follows a test-file naming convention (test_*.py /
+    *_test.py).
+    """
     path = Path(path)
     if path.is_file() and path.suffix == ".py":
         return [path]
-    # exclude typical virtualenv and hidden directories
+
     def is_excluded(p: Path) -> bool:
-        parts = {p_.lower() for p_ in p.parts}
-        # quick exclusions
-        if "site-packages" in parts or ".venv" in parts or "venv" in parts or "__pycache__" in parts:
+        parts = {part.lower() for part in p.parts}
+        if parts & _EXCLUDED_DIR_PARTS:
+            return True
+        name = p.name.lower()
+        if name.startswith("test_") or name.endswith("_test.py"):
             return True
         return False
 
