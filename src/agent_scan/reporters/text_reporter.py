@@ -53,6 +53,20 @@ def human_report(results: Dict[str, Any]) -> str:
         lines.append("  No findings detected.")
     lines.append("")
 
+    # Python entry points
+    py_entry_points = results.get("py_entry_points", [])
+    if py_entry_points:
+        lines.append("Python Entry Points (LLM-controlled surface)")
+        lines.append("-" * 46)
+        for ep in py_entry_points:
+            fw   = ep.get("framework", "unknown")
+            pt   = ep.get("pattern_type", "unknown")
+            name = ep.get("name", "unknown")
+            fpath = ep.get("file", "")
+            lno   = ep.get("lineno", "")
+            lines.append(f"  • {name}  ({fw}/{pt} @ {fpath}:{lno})")
+        lines.append("")
+
     # TypeScript entry points
     ts_entry_points = results.get("ts_entry_points", [])
     if ts_entry_points:

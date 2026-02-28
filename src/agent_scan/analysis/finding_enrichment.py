@@ -2,6 +2,8 @@
 
 from typing import Any, Dict
 
+from agent_scan.reachability import REACHABILITY_FIELDS
+
 CAPABILITY_DETAILS: Dict[str, Dict[str, str]] = {
     "EXECUTE": {
         "risk_level": "high",
@@ -67,5 +69,17 @@ def enrich_finding(finding: Dict[str, Any]) -> Dict[str, Any]:
     current_risk = enriched.get("risk_level")
     if not current_risk or str(current_risk).lower() == "medium":
         enriched["risk_level"] = detail["risk_level"]
+
+    # Reachability fields — None until the reachability analysis pass runs.
+    # These are always present in the schema so downstream tooling can rely
+    # on the keys existing. The reachability pass writes the real values.
+    for field_name in REACHABILITY_FIELDS:
+        enriched.setdefault(field_name, None)
+
+    # Finding ID fields — None here, overwritten by scanner.py immediately
+    # after enrichment using make_finding_id(). Defined as defaults so the
+    # schema is complete even in unit tests that call enrich_finding() directly.
+    enriched.setdefault("finding_id", None)   # compact SHA-1 hash
+    enriched.setdefault("finding_ref", None)  # human-readable label
 
     return enriched

@@ -3,6 +3,7 @@ Scanner orchestration. Uses the detector registry to run all registered detector
 over Python files under a given path and returns a normalized report object.
 """
 
+import hashlib
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from agent_scan.detectors.registry import get_detectors, call_detector
@@ -12,7 +13,33 @@ from agent_scan.analysis.impact import analyze_combined_capabilities
 from agent_scan.source_loader import ProgressCallback
 from agent_scan.source_loader import resolve_target
 from agent_scan.ts_entry_points import scan_ts_files, TSEntryPoint
+from agent_scan.py_entry_points import scan_py_files, EntryPoint as PyEntryPoint
 from agent_scan import detectors  # noqa: F401 - ensures detector modules register themselves
+
+
+def make_finding_id(
+    detector: str, file: str, lineno: int, root: Path, evidence: str = ""
+) -> tuple[str, str]:
+    """
+    Return (finding_id, finding_ref) for a capability finding.
+
+    finding_id  — 12-char SHA-1 hex digest of the canonical ref string.
+                  Compact, stable, safe to use as a dict key or in JSON arrays.
+                  This is what EntryPoint.reachable_findings stores.
+
+    finding_ref — human-readable "{detector}:{relative_file}:{lineno}:{evidence}".
+                  Shown in the text reporter; not used for cross-referencing.
+                  Evidence is included so two findings at the same line with
+                  different evidence (e.g. network detector emitting once per
+                  call site) produce distinct, readable refs.
+    """
+    try:
+        relative = str(Path(file).relative_to(root))
+    except ValueError:
+        relative = file
+    ref = f"{detector}:{relative}:{lineno}:{evidence}" if evidence else f"{detector}:{relative}:{lineno}"
+    digest = hashlib.sha1(ref.encode()).hexdigest()[:12]
+    return digest, ref
 
 # Directory name components that universally indicate non-agent-runtime paths.
 # Any .py file whose absolute path contains one of these as a directory part is excluded.
@@ -182,6 +209,15 @@ def scan_path(
                 # f expected to be CapabilityFinding (or similar)
                 normalized = _normalize_finding(f)
                 enriched = enrich_finding(normalized)
+                finding_id, finding_ref = make_finding_id(
+                    name,
+                    enriched.get("file", ""),
+                    enriched.get("lineno", 0),
+                    path,
+                    enriched.get("evidence", ""),
+                )
+                enriched["finding_id"] = finding_id    # compact hash — used by reachability
+                enriched["finding_ref"] = finding_ref  # human-readable — used by reporter
                 findings.append({"detector": name, "finding": enriched})
 
         if progress_callback:
@@ -198,6 +234,9 @@ def scan_path(
     # TypeScript/JavaScript entry point detection
     ts_entry_points = scan_ts_files(path)
 
+    # Python entry point detection
+    py_entry_points = scan_py_files(path)
+
     # Language detection — only when no Python files found, to explain the gap
     other_languages = _detect_other_languages(path) if not py_files else []
 
@@ -208,6 +247,7 @@ def scan_path(
         "capabilities": capability_keys,
         "risks": risks,
         "ts_entry_points": [ep.as_dict() for ep in ts_entry_points],
+        "py_entry_points": [ep.as_dict() for ep in py_entry_points],
         "other_languages": other_languages,
     }
     return report
