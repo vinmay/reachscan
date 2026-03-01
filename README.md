@@ -227,7 +227,7 @@ python -m agent_scan.cli examples/demo_agent
 ## Usage
 
 ```
-agent-scan [target] [--json]
+agent-scan [target] [--json] [--severity {high,medium,none}]
 ```
 
 `target` accepts:
@@ -242,6 +242,53 @@ agent-scan [target] [--json]
 | PyPI package (pinned) | `agent-scan pypi:requests==2.31.0` |
 
 The GitHub URL path does a shallow clone — you don't need the repo checked out locally.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Scan complete, threshold not exceeded |
+| `1` | Scan complete, ≥1 reachable finding exceeds severity threshold |
+| `2` | Scan failed (bad target, network error, unhandled exception) |
+
+### `--severity` flag
+
+Controls when the CLI exits 1:
+
+| Value | Exit 1 when... |
+|-------|----------------|
+| `high` *(default)* | reachable finding with `risk_level == "high"` |
+| `medium` | reachable finding with `risk_level in ("high", "medium")` |
+| `none` | never — always exits 0 |
+
+---
+
+## CI Integration
+
+```yaml
+name: Agent Capability Audit
+on: [push, pull_request]
+jobs:
+  agent-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pipx install agent-scan
+      - name: Run capability audit
+        run: agent-scan . --json > agent-scan-report.json
+        # Exits 1 if HIGH reachable capabilities found
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-scan-report
+          path: agent-scan-report.json
+```
+
+To audit without blocking the pipeline (report only):
+
+```yaml
+- run: agent-scan . --json --severity none > agent-scan-report.json
+```
 
 ---
 
@@ -259,4 +306,4 @@ Static capability detection is the foundation. Reachability analysis on top of i
 
 Capability detection is stable. Reachability analysis is active — entry point detection covers all major Python agent frameworks and the call graph traversal handles projects of any size. TypeScript/JavaScript entry point detection is stable.
 
-Output format and JSON schema may evolve as new analysis passes are added. Feedback, edge cases, and false positive reports are especially valuable — open an issue.
+The JSON output schema is stable at v1 — see [`docs/schema_v1.md`](docs/schema_v1.md) for the full field reference. Feedback, edge cases, and false positive reports are especially valuable — open an issue.
