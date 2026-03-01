@@ -238,6 +238,8 @@ agent-scan [target] [--json]
 | Local path, JSON output | `agent-scan ./my_agent --json` |
 | GitHub repository URL | `agent-scan https://github.com/org/repo` |
 | MCP HTTP endpoint | `agent-scan mcp+https://mcp.example.com` |
+| PyPI package (latest) | `agent-scan pypi:requests` |
+| PyPI package (pinned) | `agent-scan pypi:requests==2.31.0` |
 
 The GitHub URL path does a shallow clone — you don't need the repo checked out locally.
 

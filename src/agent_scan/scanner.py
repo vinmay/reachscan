@@ -276,4 +276,6 @@ def scan_target(
         report = scan_path(resolved.local_path, ruleset=ruleset, progress_callback=progress_callback)
         report["target"] = resolved.display_target
         report["source_type"] = resolved.source_type
+        if resolved.resolved_version is not None:
+            report["resolved_version"] = resolved.resolved_version
         return report

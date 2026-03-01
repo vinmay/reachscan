@@ -1,21 +1,25 @@
 """
-Resolve scan targets from local paths, GitHub URLs, or MCP HTTP endpoints.
+Resolve scan targets from local paths, GitHub URLs, MCP HTTP endpoints, or PyPI packages.
 """
 
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterator, List, Optional
 import hashlib
+import io
 import json
 import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
+import urllib.error
+import zipfile
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import urlopen, Request
 
 
 @dataclass
@@ -23,6 +27,7 @@ class ResolvedTarget:
     local_path: Path
     display_target: str
     source_type: str
+    resolved_version: Optional[str] = field(default=None)
 
 
 ProgressCallback = Callable[[str, Optional[int], str], None]
@@ -44,6 +49,138 @@ def _to_mcp_http_url(target: str) -> str:
     if target.startswith("mcp+https://"):
         return "https://" + target[len("mcp+https://") :]
     return target
+
+
+def _is_pypi_target(target: str) -> bool:
+    """Return True when target uses the explicit pypi: scheme."""
+    return target.startswith("pypi:")
+
+
+def _parse_pypi_target(target: str) -> tuple[str, Optional[str]]:
+    """
+    Strip the 'pypi:' prefix and split 'name==version' into (name, version).
+    Bare name (no version specifier) returns (name, None).
+
+    Examples:
+        'pypi:requests'          → ('requests', None)
+        'pypi:requests==2.31.0'  → ('requests', '2.31.0')
+    """
+    spec = target[len("pypi:"):]
+    if "==" in spec:
+        name, version = spec.split("==", 1)
+        return name.strip(), version.strip()
+    return spec.strip(), None
+
+
+def _safe_tar_members(tar: tarfile.TarFile):
+    """Yield only safe tar members, skipping absolute paths, traversal, and symlinks."""
+    for member in tar.getmembers():
+        member_path = Path(member.name)
+        if member_path.is_absolute() or ".." in member_path.parts:
+            continue
+        if member.issym() or member.islnk():
+            continue
+        yield member
+
+
+def _fetch_pypi_package(
+    name: str,
+    version: Optional[str],
+    out_dir: Path,
+    progress_callback: Optional[ProgressCallback] = None,
+) -> str:
+    """
+    Query PyPI, download the best available artifact, extract it into out_dir,
+    and return the resolved version string.
+
+    Prefers sdist (.tar.gz) over wheel (.whl) so the full source tree is present.
+    Falls back to wheel when no sdist is available.
+    """
+    if version:
+        api_url = f"https://pypi.org/pypi/{name}/{version}/json"
+    else:
+        api_url = f"https://pypi.org/pypi/{name}/json"
+
+    if progress_callback:
+        progress_callback("pypi_download", 0, f"Fetching metadata for {name}")
+
+    try:
+        with urlopen(api_url, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            if version:
+                raise RuntimeError(
+                    f"PyPI: '{name}=={version}' not found. "
+                    "Check the package name and version."
+                ) from e
+            raise RuntimeError(
+                f"PyPI: package '{name}' not found. Check the package name."
+            ) from e
+        raise RuntimeError(f"PyPI API error for '{name}': HTTP {e.code}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Network error contacting PyPI: {e}") from e
+
+    resolved_version: str = data["info"]["version"]
+    urls: List[Dict] = data.get("urls", [])
+
+    # Prefer sdist, fall back to any wheel
+    artifact = None
+    for u in urls:
+        if u.get("packagetype") == "sdist":
+            artifact = u
+            break
+    if artifact is None:
+        for u in urls:
+            if u.get("packagetype") == "bdist_wheel":
+                artifact = u
+                break
+    if artifact is None:
+        raise RuntimeError(
+            f"PyPI: no downloadable sdist or wheel found for '{name}=={resolved_version}'."
+        )
+
+    download_url: str = artifact["url"]
+    filename: str = artifact["filename"]
+
+    if progress_callback:
+        progress_callback("pypi_download", 30, f"Downloading {filename}")
+
+    try:
+        with urlopen(download_url, timeout=60) as resp:
+            archive_bytes = resp.read()
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Failed to download '{filename}': {e}") from e
+
+    if progress_callback:
+        progress_callback("pypi_download", 70, f"Extracting {filename}")
+
+    archive_data = io.BytesIO(archive_bytes)
+
+    if filename.endswith((".tar.gz", ".tar.bz2", ".tgz")):
+        mode = "r:gz" if filename.endswith((".tar.gz", ".tgz")) else "r:bz2"
+        try:
+            with tarfile.open(fileobj=archive_data, mode=mode) as tar:
+                tar.extractall(path=out_dir, members=_safe_tar_members(tar))
+        except tarfile.TarError as e:
+            raise RuntimeError(f"Failed to extract '{filename}': {e}") from e
+    elif filename.endswith((".whl", ".zip")):
+        try:
+            with zipfile.ZipFile(archive_data) as zf:
+                for member in zf.namelist():
+                    member_path = Path(member)
+                    if member_path.is_absolute() or ".." in member_path.parts:
+                        continue
+                    zf.extract(member, path=out_dir)
+        except zipfile.BadZipFile as e:
+            raise RuntimeError(f"Failed to extract '{filename}': {e}") from e
+    else:
+        raise RuntimeError(f"Unrecognised archive format: '{filename}'.")
+
+    if progress_callback:
+        progress_callback("pypi_download", 100, "Done")
+
+    return resolved_version
 
 
 def _safe_python_filename(uri: str, idx: int) -> str:
@@ -227,6 +364,21 @@ def resolve_target(
             endpoint = _to_mcp_http_url(target_str)
             _materialize_mcp_endpoint(endpoint, work)
             yield ResolvedTarget(local_path=work, display_target=target_str, source_type="mcp")
+            return
+
+        if _is_pypi_target(target_str):
+            work = tmp_root / "pypi_package"
+            work.mkdir(parents=True, exist_ok=True)
+            name, version = _parse_pypi_target(target_str)
+            resolved_version = _fetch_pypi_package(
+                name, version, work, progress_callback=progress_callback
+            )
+            yield ResolvedTarget(
+                local_path=work,
+                display_target=target_str,
+                source_type="pypi",
+                resolved_version=resolved_version,
+            )
             return
 
         raise FileNotFoundError(

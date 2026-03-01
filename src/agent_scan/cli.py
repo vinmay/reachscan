@@ -14,6 +14,8 @@ def _progress_callback(stage: str, percent: int | None, detail: str) -> None:
     bar = _format_progress_bar(pct)
     if stage == "github_clone":
         label = "Cloning GitHub repository"
+    elif stage == "pypi_download":
+        label = "Downloading from PyPI    "
     elif stage == "analysis_scan":
         label = "Analyzing Python files   "
     else:
@@ -33,7 +35,7 @@ def build_parser():
         "path",
         nargs="?",
         default=".",
-        help="Local path, GitHub repo URL, or MCP endpoint (mcp+https://...)",
+        help="Local path, GitHub repo URL, MCP endpoint (mcp+https://...), or PyPI package (pypi:name or pypi:name==version)",
     )
     p.add_argument("--json", action="store_true", dest="as_json", help="Print machine-readable JSON output")
     p.add_argument("--rules", choices=["core", "all"], default="core", help="Ruleset to run (currently: core)")

@@ -177,5 +177,8 @@ def human_report(results: Dict[str, Any]) -> str:
         lines.append("")
 
     lines.append("Static analysis only: this report reflects code patterns, not runtime behavior or exploitability.")
-    lines.append(f"Scanned: {results.get('num_files_scanned', 0)} python files under {results.get('target')}")
+    version_note = ""
+    if results.get("resolved_version"):
+        version_note = f" (version {results['resolved_version']})"
+    lines.append(f"Scanned: {results.get('num_files_scanned', 0)} python files under {results.get('target')}{version_note}")
     return "\n".join(lines)
