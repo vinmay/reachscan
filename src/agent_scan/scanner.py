@@ -14,6 +14,8 @@ from agent_scan.source_loader import ProgressCallback
 from agent_scan.source_loader import resolve_target
 from agent_scan.ts_entry_points import scan_ts_files, TSEntryPoint
 from agent_scan.py_entry_points import scan_py_files, EntryPoint as PyEntryPoint
+from agent_scan.call_graph import build_call_graph
+from agent_scan.reachability import analyze_reachability
 from agent_scan import detectors  # noqa: F401 - ensures detector modules register themselves
 
 
@@ -130,7 +132,7 @@ def _gather_py_files(path: Path) -> List[Path]:
     """
     path = Path(path)
     if path.is_file() and path.suffix == ".py":
-        return [path]
+        return [path.resolve()]
 
     def is_excluded(p: Path) -> bool:
         parts = {part.lower() for part in p.parts}
@@ -141,7 +143,7 @@ def _gather_py_files(path: Path) -> List[Path]:
             return True
         return False
 
-    files = [p for p in path.rglob("*.py") if not is_excluded(p)]
+    files = [p.resolve() for p in path.rglob("*.py") if not is_excluded(p)]
     return files
 
 def _normalize_finding(f: CapabilityFinding) -> Dict[str, Any]:
@@ -236,6 +238,15 @@ def scan_path(
 
     # Python entry point detection
     py_entry_points = scan_py_files(path)
+
+    # Reachability analysis: build call graph and tag each finding
+    graph, lineno_idx, _ = build_call_graph(py_files, path)
+    analyze_reachability(
+        findings=[entry["finding"] for entry in findings],
+        py_entry_points=py_entry_points,
+        graph=graph,
+        lineno_index=lineno_idx,
+    )
 
     # Language detection — only when no Python files found, to explain the gap
     other_languages = _detect_other_languages(path) if not py_files else []

@@ -213,9 +213,9 @@ def my_function(x: str) -> str:
 def test_pydantic_ai_agent_tool():
     """@agent.tool is detected via the 'tool' pattern.
 
-    Framework resolves to 'langchain_or_crewai' (the ENTRY_POINT_DECORATORS default for 'tool')
-    at confidence 0.60 because 'agent' is a local variable, not a direct import — the
-    receiver name alone is insufficient to prove pydantic_ai vs LangChain/CrewAI.
+    Framework resolves to pydantic_ai at confidence 0.80 because the file imports
+    Agent from pydantic_ai, and 'agent' (lowercase) is inferred to be an instance
+    of that class via the title-case lookup in _resolve_framework step 1.5.
     """
     content = '''\
 from pydantic_ai import Agent, RunContext
@@ -230,8 +230,8 @@ def get_weather(ctx: RunContext, city: str) -> str:
     assert len(results) == 1
     r = results[0]
     assert r.name == "get_weather"
-    assert r.framework == "langchain_or_crewai"  # 'tool' default; receiver 'agent' not in imports
-    assert r.confidence == 0.60
+    assert r.framework == FRAMEWORK_PYDANTIC_AI  # inferred from Agent import via title-case lookup
+    assert r.confidence == 0.80
     assert r.pattern_type == PATTERN_DECORATOR
 
 
@@ -253,10 +253,10 @@ def delete_file(path: str) -> str:
     names = [r.name for r in results]
     assert "web_search" in names
     assert "delete_file" in names
-    # 'tool_plain' maps to FRAMEWORK_PYDANTIC_AI in ENTRY_POINT_DECORATORS (confidence 0.60
-    # because receiver 'agent' is a local variable, not imported from pydantic_ai directly).
+    # 'agent' (lowercase) is inferred as an instance of Agent imported from pydantic_ai
+    # via the title-case lookup in _resolve_framework step 1.5 → confidence 0.80.
     assert all(r.framework == FRAMEWORK_PYDANTIC_AI for r in results)
-    assert all(r.confidence == 0.60 for r in results)
+    assert all(r.confidence == 0.80 for r in results)
 
 
 def test_pydantic_ai_mixed_tool_and_tool_plain():

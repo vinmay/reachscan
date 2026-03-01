@@ -1,10 +1,71 @@
-from typing import Dict, Any
+from typing import Dict, Any, List
+
+
+def _format_path(path: list, truncated: bool) -> str:
+    if not path:
+        return ""
+    if truncated and len(path) > 2:
+        nodes = [path[0], "…", path[-1]]
+    else:
+        nodes = path
+    return " → ".join(nodes)
+
+
+def _render_finding(item: dict, lines: List[str], show_path: bool, show_state_prefix: bool) -> None:
+    finding = item.get("finding", {})
+    detector = item.get("detector", "unknown")
+    file_path = finding.get("file", "unknown")
+    lineno = finding.get("lineno")
+    location = f"{file_path}:{lineno}" if lineno else file_path
+    risk_level = str(finding.get("risk_level", "unknown")).upper()
+    state = finding.get("reachability")
+
+    state_prefix = ""
+    if show_state_prefix:
+        if state == "unreachable":
+            state_prefix = "UNREACHABLE  "
+        elif state == "unknown":
+            state_prefix = "UNKNOWN  "
+        elif state == "module_level":
+            state_prefix = "MODULE_LEVEL  "
+
+    lines.append(
+        f"  [{risk_level}] {state_prefix}{finding.get('capability')} via {finding.get('evidence')} "
+        f"({detector} @ {location})"
+    )
+
+    if show_path and state == "reachable":
+        path = finding.get("reachability_path") or []
+        truncated = finding.get("reachability_path_truncated", False)
+        formatted = _format_path(path, truncated)
+        if formatted:
+            lines.append(f"    path: {formatted}")
+    elif state == "module_level":
+        lines.append("    reachability: Executes on import — runs whenever this module loads")
+
+    lines.append(f"    explanation: {finding.get('explanation', '')}")
+    lines.append(f"    impact: {finding.get('impact', '')}")
+
 
 def human_report(results: Dict[str, Any]) -> str:
     lines = []
     lines.append("Agent Capability Report")
     lines.append("=" * 23)
     lines.append("")
+
+    # Python entry points — moved to top so the reader sees the LLM surface first
+    py_entry_points = results.get("py_entry_points", [])
+    if py_entry_points:
+        lines.append("Python Entry Points (LLM-controlled surface)")
+        lines.append("-" * 46)
+        for ep in py_entry_points:
+            fw   = ep.get("framework", "unknown")
+            pt   = ep.get("pattern_type", "unknown")
+            name = ep.get("name", "unknown")
+            fpath = ep.get("file", "")
+            lno   = ep.get("lineno", "")
+            lines.append(f"  • {name}  ({fw}/{pt} @ {fpath}:{lno})")
+        lines.append("")
 
     caps = results.get("capabilities", [])
     if caps:
@@ -32,39 +93,57 @@ def human_report(results: Dict[str, Any]) -> str:
         lines.append("  None inferred from combined-capability rules.")
     lines.append("")
 
-    lines.append("Findings")
-    lines.append("-" * 8)
     findings = results.get("findings", [])
-    if findings:
-        for item in findings:
-            finding = item.get("finding", {})
-            detector = item.get("detector", "unknown")
-            file_path = finding.get("file", "unknown")
-            lineno = finding.get("lineno")
-            location = f"{file_path}:{lineno}" if lineno else file_path
-            risk_level = str(finding.get("risk_level", "unknown")).upper()
-            lines.append(
-                f"  [{risk_level}] {finding.get('capability')} via {finding.get('evidence')} "
-                f"({detector} @ {location})"
-            )
-            lines.append(f"    explanation: {finding.get('explanation', '')}")
-            lines.append(f"    impact: {finding.get('impact', '')}")
-    else:
-        lines.append("  No findings detected.")
-    lines.append("")
+    all_states = {item["finding"].get("reachability") for item in findings}
+    has_reachability = bool(all_states & {"reachable", "unreachable", "unknown", "module_level"})
 
-    # Python entry points
-    py_entry_points = results.get("py_entry_points", [])
-    if py_entry_points:
-        lines.append("Python Entry Points (LLM-controlled surface)")
-        lines.append("-" * 46)
-        for ep in py_entry_points:
-            fw   = ep.get("framework", "unknown")
-            pt   = ep.get("pattern_type", "unknown")
-            name = ep.get("name", "unknown")
-            fpath = ep.get("file", "")
-            lno   = ep.get("lineno", "")
-            lines.append(f"  • {name}  ({fw}/{pt} @ {fpath}:{lno})")
+    if has_reachability:
+        reachable     = [f for f in findings if f["finding"].get("reachability") == "reachable"]
+        unreachable   = [f for f in findings if f["finding"].get("reachability") == "unreachable"]
+        module_level  = [f for f in findings if f["finding"].get("reachability") == "module_level"]
+        unknown       = [f for f in findings if f["finding"].get("reachability") == "unknown"]
+
+        # Reachability Summary
+        lines += ["Reachability Summary", "-" * 20]
+        lines.append(f"  {len(reachable):>4} reachable     — LLM can trigger these directly")
+        lines.append(f"  {len(unreachable):>4} unreachable   — exist in codebase, not on any LLM call path")
+        if module_level:
+            lines.append(f"  {len(module_level):>4} module-level  — execute on import, not on any call path")
+        if unknown:
+            lines.append(f"  {len(unknown):>4} unknown       — unresolvable (dynamic dispatch or parse failure)")
+        lines.append("")
+
+        # Reachable Findings
+        lines += ["Reachable Findings  —  LLM can trigger these directly", "-" * 52]
+        if reachable:
+            for item in reachable:
+                _render_finding(item, lines, show_path=True, show_state_prefix=False)
+        else:
+            lines.append("  No findings reachable from the detected entry points.")
+        lines.append("")
+
+        # Other Findings (only if any)
+        other = unreachable + module_level + unknown
+        if other:
+            lines += ["Other Findings  —  not on LLM call path", "-" * 41]
+            for item in other:
+                _render_finding(item, lines, show_path=False, show_state_prefix=True)
+            lines.append("")
+
+    else:
+        # no_entry_points or reachability field is None
+        lines += ["Findings", "-" * 8]
+        if findings:
+            if "no_entry_points" in all_states:
+                lines.append(
+                    "  No Python entry points detected — "
+                    "showing all findings without reachability context."
+                )
+                lines.append("")
+            for item in findings:
+                _render_finding(item, lines, show_path=False, show_state_prefix=False)
+        else:
+            lines.append("  No findings detected.")
         lines.append("")
 
     # TypeScript entry points

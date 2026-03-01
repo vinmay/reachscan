@@ -182,6 +182,59 @@ def _is_excluded_py_file(path: Path) -> bool:
 # Import resolution
 # ---------------------------------------------------------------------------
 
+def _infer_receiver_modules(tree: ast.AST, imports: Dict[str, str]) -> Dict[str, str]:
+    """
+    Scan module-level assignments to infer the source module of local variables.
+
+    Handles patterns like:
+        agent = Agent(...)          → {"agent": "pydantic_ai"}
+        weather_agent = Agent(...)  → {"weather_agent": "pydantic_ai"}
+
+    where the called class is in `imports`. Only top-level assignments are examined;
+    assignments inside functions are skipped (they're too context-dependent to infer).
+    """
+    inferred: Dict[str, str] = {}
+    for node in ast.iter_child_nodes(tree):
+        # Simple assignment: x = Class(...)
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            called_name = _call_func_name(node.value)
+            if called_name:
+                module = imports.get(called_name, "")
+                if module:
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            inferred[target.id] = module
+        # Annotated assignment: x: Type = Class(...)
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and node.value is not None
+            and isinstance(node.value, ast.Call)
+        ):
+            called_name = _call_func_name(node.value)
+            if called_name:
+                module = imports.get(called_name, "")
+                if module and isinstance(node.target, ast.Name):
+                    inferred[node.target.id] = module
+    return inferred
+
+
+def _call_func_name(call: ast.Call) -> Optional[str]:
+    """Return the bare function/class name from a Call node, or None.
+
+    Handles plain calls (Agent(...)), attribute calls (mod.Agent(...)),
+    and subscripted generics (Agent[Deps, T](...)).
+    """
+    func = call.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        return func.attr
+    # Agent[Deps, T](...) — subscript wrapping a Name
+    if isinstance(func, ast.Subscript) and isinstance(func.value, ast.Name):
+        return func.value.id
+    return None
+
+
 def _collect_imports(tree: ast.AST) -> Dict[str, str]:
     """
     Return a dict mapping each locally-imported name to its source module.
@@ -220,6 +273,7 @@ def _resolve_framework(
     key: str,
     receiver_name: Optional[str],
     imports: Dict[str, str],
+    inferred: Optional[Dict[str, str]] = None,
 ) -> Tuple[str, float]:
     """
     Return (framework_label, confidence) for a detected entry point.
@@ -227,12 +281,14 @@ def _resolve_framework(
     Resolution order:
       1. receiver in imports and module is known   → 0.95
       2. key (bare name) in imports, module known  → 0.95
-      3. receiver in imports, module unknown       → 0.70
+      3. receiver in inferred instances, module known → 0.80
+         (e.g. weather_agent = Agent(...) where Agent is from pydantic_ai)
+      4. receiver in imports, module unknown       → 0.70
          (but if receiver name hints at MCP, label as "mcp" not "unknown_framework")
-      4. key in imports, module unknown            → 0.70
-      5. receiver name matches _MCP_RECEIVER_HINTS → 0.60, label "mcp"
-      6. key in ENTRY_POINT_DECORATORS             → 0.60, dict default label
-      7. fallback                                  → 0.60, FRAMEWORK_UNKNOWN
+      5. key in imports, module unknown            → 0.70
+      6. receiver name matches _MCP_RECEIVER_HINTS → 0.60, label "mcp"
+      7. key in ENTRY_POINT_DECORATORS             → 0.60, dict default label
+      8. fallback                                  → 0.60, FRAMEWORK_UNKNOWN
     """
     # Steps 1 & 2: known import resolves receiver or bare name
     for name in filter(None, [receiver_name, key]):
@@ -242,7 +298,15 @@ def _resolve_framework(
             if fw:
                 return fw, 0.95
 
-    # Steps 3 & 4: import found but module not in known list
+    # Step 3: receiver is an inferred local instance (e.g. weather_agent = Agent(...))
+    if receiver_name and inferred:
+        module = inferred.get(receiver_name, "")
+        if module:
+            fw = _module_to_framework(module)
+            if fw:
+                return fw, 0.80
+
+    # Steps 4 & 5: import found but module not in known list
     for name in filter(None, [receiver_name, key]):
         module = imports.get(name, "")
         if module:
@@ -314,6 +378,7 @@ def _check_decorator(
     func_node: ast.FunctionDef | ast.AsyncFunctionDef,
     file_path: str,
     imports: Dict[str, str],
+    inferred: Optional[Dict[str, str]] = None,
 ) -> Optional[EntryPoint]:
     """Return an EntryPoint if the decorator matches a known entry point pattern."""
     key, receiver = _decorator_key(decorator)
@@ -325,7 +390,7 @@ def _check_decorator(
     if isinstance(decorator, ast.Call):
         name = _name_from_call(decorator, default=func_node.name)
 
-    framework, confidence = _resolve_framework(key, receiver, imports)
+    framework, confidence = _resolve_framework(key, receiver, imports, inferred)
 
     return EntryPoint(
         name=name,
@@ -445,13 +510,14 @@ def detect_py_entry_points(file_path: str, content: str) -> List[EntryPoint]:
         return []
 
     imports = _collect_imports(tree)
+    inferred = _infer_receiver_modules(tree, imports)
     results: List[EntryPoint] = []
     seen: set = set()  # (lineno, name) dedup
 
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for decorator in node.decorator_list:
-                ep = _check_decorator(decorator, node, file_path, imports)
+                ep = _check_decorator(decorator, node, file_path, imports, inferred)
                 if ep:
                     key = (ep.lineno, ep.name)
                     if key not in seen:

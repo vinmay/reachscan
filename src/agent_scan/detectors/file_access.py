@@ -64,6 +64,9 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
             first = parts[0]
             mapped = imports.get(first, first)
             return ".".join([mapped] + parts[1:]) if parts[1:] else mapped
+        # For call expressions like Path(path) or Path(...).method, resolve the function
+        if isinstance(node, ast.Call):
+            return resolve_name(node.func)
         return None
 
     # Helper to check open() modes in Call node

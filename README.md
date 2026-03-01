@@ -35,38 +35,84 @@ Cross-capability risks are also flagged — READ + SEND detected together raises
 
 ---
 
+## Reachability analysis
+
+Knowing a capability exists in a codebase is useful. Knowing whether the LLM can actually trigger it is what matters.
+
+`agent-scan` detects the LLM-facing entry points in your codebase, builds an intra-project call graph, and traces which capabilities are reachable from those entry points. Every finding is tagged with one of five states:
+
+| State | Meaning |
+|---|---|
+| `reachable` | Confirmed on a call path from an LLM entry point |
+| `unreachable` | Exists in the codebase, not on any LLM call path |
+| `module_level` | Runs on import — executes when the module loads, not via a function call |
+| `unknown` | Inside code that can't be statically resolved (dynamic dispatch, parse failure) |
+| `no_entry_points` | No entry points detected — full reachability analysis not possible |
+
+The call graph follows up to 8 hops from each entry point. Call paths are shown in the report so you can see exactly how the LLM reaches a capability.
+
+### Entry point detection
+
+`agent-scan` recognises LLM-callable functions across all major Python agent frameworks:
+
+| Framework | Detection pattern |
+|---|---|
+| Pydantic AI | `@agent.tool`, `@agent.tool_plain` |
+| LangChain / CrewAI | `@tool`, `class MyTool(BaseTool)` |
+| OpenAI Agents SDK | `@function_tool` |
+| MCP (Python SDK / FastMCP) | `@mcp.tool()`, `@server.tool()` |
+| Semantic Kernel | `@kernel_function` |
+| AutoGen | `@register_for_llm` |
+
+Framework attribution uses a confidence-graded resolution chain: direct imports are resolved at 0.95 confidence, inferred instance variables (e.g. `weather_agent = Agent[Deps, T](...)`) at 0.80, and unresolvable decorator names fall back to the best available label at 0.60.
+
+---
+
 ## What it looks like
 
 ```text
 Agent Capability Report
 =======================
 
-Target: ./my_agent
+Python Entry Points (LLM-controlled surface)
+----------------------------------------------
+  • get_lat_lng  (pydantic_ai/decorator @ weather_agent.py:50)
+  • get_weather  (pydantic_ai/decorator @ weather_agent.py:67)
 
 Capabilities
 ------------
-  • Read local files
-  • Send data to external servers
-  • Execute shell commands
-  • Access environment variables and secrets
+  • SEND
 
-Findings
---------
-  [READ]    agent/tools/file_tool.py:42     open(path, 'r')
-  [SEND]    agent/client.py:87              requests.post(self.endpoint, json=payload)
-  [EXECUTE] agent/runner.py:23              subprocess.run(cmd, shell=True)
-  [SECRETS] agent/config.py:15             os.environ['OPENAI_API_KEY']
+Combined Risks
+--------------
+  None inferred from combined-capability rules.
 
-Risk Analysis
--------------
-  DATA EXPOSURE
-    READ + SEND detected — local files may be transmitted externally
+Reachability Summary
+--------------------
+     3 reachable     — LLM can trigger these directly
+   117 unreachable   — exist in codebase, not on any LLM call path
+     3 module-level  — execute on import, not on any call path
 
-  SYSTEM MODIFICATION
-    EXECUTE detected — shell commands can be run on the host machine
+Reachable Findings  —  LLM can trigger these directly
+------------------------------------------------------
+  [HIGH] SEND via ctx.deps.client.get -> https://api.weather.example.com (network @ weather_agent.py:58)
+    path: get_lat_lng
+    explanation: This code can send data over the network to external services.
+    impact: Sensitive local data could be transmitted to untrusted endpoints.
+
+Other Findings  —  not on LLM call path
+-----------------------------------------
+  [HIGH] UNREACHABLE  SECRETS via os.getenv('ANTHROPIC_API_KEY') (secrets @ model_client.py:12)
+    explanation: This code accesses secrets or credential sources.
+    impact: Credentials may be disclosed and used for unauthorized access.
+
+  [HIGH] MODULE_LEVEL  SECRETS via os.getenv('PYDANTIC_AI_MODEL') (secrets @ config.py:25)
+    reachability: Executes on import — runs whenever this module loads
+    explanation: This code accesses secrets or credential sources.
+    impact: Credentials may be disclosed and used for unauthorized access.
 ```
 
-You get file paths and line numbers. Not just "this repo uses subprocess" — you get exactly where and how.
+You get file paths and line numbers. Not just "this repo uses subprocess" — you get exactly where, how, and whether the LLM can reach it.
 
 ---
 
@@ -182,15 +228,16 @@ The GitHub URL path does a shallow clone — you don't need the repo checked out
 
 ## Project direction
 
-Phase 1 is visibility: static capability detection with low false positive rates, across any Python AI codebase.
-
 The goal:
 
 > Give AI systems a permission model they've never had.
+
+Static capability detection is the foundation. Reachability analysis on top of it answers the harder question: not just *can* this code do something, but *can the LLM trigger it*.
 
 ---
 
 ## Status
 
-Stable for Phase 1 capability detection. Rules and output format may evolve.
-Feedback, edge cases, and false positive reports are especially valuable — open an issue.
+Capability detection is stable. Reachability analysis is active — entry point detection covers all major Python agent frameworks and the call graph traversal handles projects of any size.
+
+Output format and JSON schema may evolve as new analysis passes are added. Feedback, edge cases, and false positive reports are especially valuable — open an issue.
