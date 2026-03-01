@@ -1,6 +1,6 @@
 # agent-scan
 
-> Static capability analysis for Python AI code.
+> Static capability analysis for Python and TypeScript/JavaScript AI code.
 > Know what it can do before it does it.
 
 ---
@@ -13,7 +13,7 @@ Most developers add tools without a clear accounting of what permissions they're
 
 `agent-scan` is the accounting.
 
-It analyzes Python code and reports the actual capabilities present: what the code can read, write, execute, send, and access. Not what the README says. What the code does.
+It analyzes Python and TypeScript/JavaScript code and reports the actual capabilities present: what the code can read, write, execute, send, and access. Not what the README says. What the code does.
 
 ---
 
@@ -51,7 +51,7 @@ Knowing a capability exists in a codebase is useful. Knowing whether the LLM can
 
 The call graph follows up to 8 hops from each entry point. Call paths are shown in the report so you can see exactly how the LLM reaches a capability.
 
-### Entry point detection
+### Entry point detection — Python
 
 `agent-scan` recognises LLM-callable functions across all major Python agent frameworks:
 
@@ -65,6 +65,23 @@ The call graph follows up to 8 hops from each entry point. Call paths are shown 
 | AutoGen | `@register_for_llm` |
 
 Framework attribution uses a confidence-graded resolution chain: direct imports are resolved at 0.95 confidence, inferred instance variables (e.g. `weather_agent = Agent[Deps, T](...)`) at 0.80, and unresolvable decorator names fall back to the best available label at 0.60.
+
+Python entry points feed into the reachability pass — the call graph is traced from each detected entry point to identify which capabilities the LLM can actually trigger.
+
+### Entry point detection — TypeScript and JavaScript
+
+`agent-scan` scans `.ts`, `.js`, `.mts`, `.mjs`, `.cts`, and `.cjs` files using regex-based pattern matching. No Node.js runtime is required.
+
+| Pattern | What it detects | Confidence |
+|---|---|---|
+| `mcp_tool` | `server.tool("name", schema, handler)` | 0.95 |
+| `mcp_tool_definition` | `{ name: "...", description: ..., inputSchema: ... }` objects | 0.85 |
+| `langchain_tool` | `new DynamicTool({ name: "...", ... })` | 0.85 |
+| `mcp_handler` | `server.setRequestHandler(Schema, ...)` | 0.80 |
+
+Both same-line and multi-line registration styles are handled for each pattern. Declaration files (`.d.ts`), test files, minified bundles, and `node_modules`/`dist`/`build` directories are automatically excluded.
+
+**Current limitation:** TypeScript and JavaScript function bodies are not capability-analyzed — only entry points are detected. When a project mixes Python and TypeScript, capability findings come from the Python side and TypeScript entry points are listed separately in the report.
 
 ---
 
@@ -132,7 +149,7 @@ You get file paths and line numbers. Not just "this repo uses subprocess" — yo
 
 The name is intentional but the scope is broader.
 
-Any Python code that runs in an AI-adjacent context is a valid target — tool libraries, retrieval pipelines, memory modules, execution sandboxes. If an LLM can call it, you want to know what it can do.
+Any Python or TypeScript/JavaScript code that runs in an AI-adjacent context is a valid target — tool libraries, retrieval pipelines, memory modules, execution sandboxes. If an LLM can call it, you want to know what it can do.
 
 ---
 
@@ -238,6 +255,6 @@ Static capability detection is the foundation. Reachability analysis on top of i
 
 ## Status
 
-Capability detection is stable. Reachability analysis is active — entry point detection covers all major Python agent frameworks and the call graph traversal handles projects of any size.
+Capability detection is stable. Reachability analysis is active — entry point detection covers all major Python agent frameworks and the call graph traversal handles projects of any size. TypeScript/JavaScript entry point detection is stable.
 
 Output format and JSON schema may evolve as new analysis passes are added. Feedback, edge cases, and false positive reports are especially valuable — open an issue.
