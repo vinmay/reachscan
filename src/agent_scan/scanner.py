@@ -56,6 +56,11 @@ _EXCLUDED_DIR_PARTS = frozenset({
     "benchmark", "benchmarks",
 })
 
+# Extra exclusions applied only for PyPI package scans.
+_PYPI_EXCLUDED_DIR_PARTS = frozenset({
+    "docs", "doc", ".dist-info", "scripts",
+})
+
 # Extension → human-readable language name for the "unsupported language" notice.
 _EXT_TO_LANGUAGE = {
     ".go":    "Go",
@@ -122,21 +127,62 @@ def _detect_other_languages(path: Path) -> List[Dict[str, Any]]:
     )
 
 
-def _gather_py_files(path: Path) -> List[Path]:
+def _package_root(extracted_dir: Path) -> Path:
+    """
+    For an sdist extraction the archive normally creates a single top-level
+    directory (e.g. openai_agents-0.0.19/).  Return it when it looks like a
+    project root (contains pyproject.toml / setup.py / setup.cfg / PKG-INFO).
+    Fall back to extracted_dir itself for wheel flat layouts or unusual sdists.
+    """
+    try:
+        entries = [
+            e for e in extracted_dir.iterdir()
+            if e.is_dir() and not e.name.endswith(".dist-info")
+        ]
+        if len(entries) == 1:
+            candidate = entries[0]
+            markers = ("pyproject.toml", "setup.py", "setup.cfg", "PKG-INFO")
+            if any((candidate / m).exists() for m in markers):
+                return candidate
+    except Exception:
+        pass
+    return extracted_dir
+
+
+def _relativize_paths(report: dict, root: Path) -> None:
+    """
+    Strip the absolute ``root`` prefix from file paths in findings and entry
+    points so reports show package-relative paths instead of temp-dir paths.
+    """
+    for entry in report.get("findings", []):
+        try:
+            entry["finding"]["file"] = str(Path(entry["finding"]["file"]).relative_to(root))
+        except (ValueError, KeyError):
+            pass
+    for ep in report.get("py_entry_points", []) + report.get("ts_entry_points", []):
+        try:
+            ep["file"] = str(Path(ep["file"]).relative_to(root))
+        except ValueError:
+            pass
+
+
+def _gather_py_files(path: Path, extra_excluded: frozenset = frozenset()) -> List[Path]:
     """Return list of .py files under path (or single file if path is file).
 
     Files are excluded when any directory component of their path matches a
     known non-agent-runtime name (CI scripts, test dirs, benchmark dirs) or
     when the filename follows a test-file naming convention (test_*.py /
-    *_test.py).
+    *_test.py).  ``extra_excluded`` adds source-type-specific dir parts.
     """
     path = Path(path)
     if path.is_file() and path.suffix == ".py":
         return [path.resolve()]
 
+    combined_excluded = _EXCLUDED_DIR_PARTS | extra_excluded
+
     def is_excluded(p: Path) -> bool:
         parts = {part.lower() for part in p.parts}
-        if parts & _EXCLUDED_DIR_PARTS:
+        if parts & combined_excluded:
             return True
         name = p.name.lower()
         if name.startswith("test_") or name.endswith("_test.py"):
@@ -164,6 +210,7 @@ def scan_path(
     path: Path,
     ruleset: str = "core",
     progress_callback: Optional[ProgressCallback] = None,
+    extra_excluded: frozenset = frozenset(),
 ) -> Dict[str, Any]:
     """
     Run all registered detectors over the given path and return a structured report.
@@ -181,7 +228,7 @@ def scan_path(
     }
     """
     path = Path(path)
-    py_files = _gather_py_files(path)
+    py_files = _gather_py_files(path, extra_excluded=extra_excluded)
 
     # load detectors from registry
     detectors = get_detectors()
@@ -273,7 +320,23 @@ def scan_target(
     Scan a local path, GitHub URL, or MCP endpoint target.
     """
     with resolve_target(target, progress_callback=progress_callback) as resolved:
-        report = scan_path(resolved.local_path, ruleset=ruleset, progress_callback=progress_callback)
+        if resolved.source_type == "pypi":
+            scan_root = _package_root(resolved.local_path)
+            extra_excluded = _PYPI_EXCLUDED_DIR_PARTS
+        else:
+            scan_root = resolved.local_path
+            extra_excluded = frozenset()
+        report = scan_path(
+            scan_root,
+            ruleset=ruleset,
+            progress_callback=progress_callback,
+            extra_excluded=extra_excluded,
+        )
         report["target"] = resolved.display_target
         report["source_type"] = resolved.source_type
+        if resolved.resolved_version is not None:
+            report["resolved_version"] = resolved.resolved_version
+        # Strip temp-dir prefix from all file references for non-local scans
+        if resolved.source_type != "local":
+            _relativize_paths(report, scan_root)
         return report

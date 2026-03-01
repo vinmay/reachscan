@@ -407,6 +407,30 @@ my_tool = tool(some_function)  # not a decorator
     assert results == []
 
 
+def test_no_fp_nested_function_in_method():
+    """SDK-internal pattern: @function_tool on a closure inside a method body.
+
+    Mirrors openai-agents Agent.as_tool() which defines:
+        @function_tool(name_override=..., description_override=...)
+        async def run_agent(context, input): ...
+    inside the method body and returns it.  This is an internal SDK
+    implementation detail, not a user-defined entry point.
+    """
+    content = '''\
+from agents.tool import function_tool
+
+class Agent:
+    def as_tool(self, tool_name=None, tool_description=None):
+        @function_tool(name_override=tool_name, description_override=tool_description or "")
+        async def run_agent(context, input: str) -> str:
+            return ""
+
+        return run_agent
+'''
+    results = detect_py_entry_points("agent.py", content)
+    assert results == [], f"Expected no entry points, got: {results}"
+
+
 # ---------------------------------------------------------------------------
 # Deduplication
 # ---------------------------------------------------------------------------

@@ -153,7 +153,8 @@ def test_depth_limit_stops_bfs():
     ep = make_ep("fn0", FILE, 10)
     findings = [make_finding(FILE, N * 10 + 12)]
 
-    analyze_reachability(findings, [ep], graph, lineno_index)
+    with pytest.warns(UserWarning, match="nodes skipped"):
+        analyze_reachability(findings, [ep], graph, lineno_index)
 
     assert findings[0]["reachability"] == UNREACHABLE
 

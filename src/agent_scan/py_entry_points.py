@@ -496,6 +496,26 @@ def _check_base_tool_class(
 # Core detection
 # ---------------------------------------------------------------------------
 
+def _iter_detectable_nodes(parent: ast.AST):
+    """
+    Yield FunctionDef, AsyncFunctionDef, and ClassDef nodes visible at
+    module scope or class body scope.
+
+    Intentionally does NOT recurse into function or method bodies, so
+    closures defined inside methods (e.g. SDK-internal helpers like
+    ``@function_tool async def run_agent(...)`` inside ``Agent.as_tool()``)
+    are invisible to the detector.  Real user-defined tools are always at
+    module or class scope, never nested inside other functions.
+    """
+    for node in ast.iter_child_nodes(parent):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            yield node
+            # Do NOT recurse: anything inside this function body is skipped
+        elif isinstance(node, ast.ClassDef):
+            yield node
+            yield from _iter_detectable_nodes(node)  # recurse into class body only
+
+
 def detect_py_entry_points(file_path: str, content: str) -> List[EntryPoint]:
     """
     Scan a single Python file's content for LLM entry points.
@@ -514,7 +534,7 @@ def detect_py_entry_points(file_path: str, content: str) -> List[EntryPoint]:
     results: List[EntryPoint] = []
     seen: set = set()  # (lineno, name) dedup
 
-    for node in ast.walk(tree):
+    for node in _iter_detectable_nodes(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for decorator in node.decorator_list:
                 ep = _check_decorator(decorator, node, file_path, imports, inferred)
