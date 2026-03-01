@@ -3,6 +3,10 @@ import json
 import sys
 from agent_scan.scanner import scan_target
 from agent_scan.reporters.text_reporter import human_report
+from agent_scan.reporters.json_reporter import json_report
+
+_SEVERITY_LEVELS = {"high": {"high"}, "medium": {"high", "medium"}}
+
 
 def _format_progress_bar(percent: int, width: int = 28) -> str:
     filled = max(0, min(width, int(width * percent / 100)))
@@ -26,6 +30,17 @@ def _progress_callback(stage: str, percent: int | None, detail: str) -> None:
         print(file=sys.stderr, flush=True)
 
 
+def _compute_exit_code(results: dict, severity: str) -> int:
+    if severity == "none":
+        return 0
+    trigger_levels = _SEVERITY_LEVELS.get(severity, {"high"})
+    for item in results.get("findings", []):
+        f = item.get("finding", {})
+        if f.get("reachability") == "reachable" and f.get("risk_level") in trigger_levels:
+            return 1
+    return 0
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="agent-scan",
@@ -39,17 +54,32 @@ def build_parser():
     )
     p.add_argument("--json", action="store_true", dest="as_json", help="Print machine-readable JSON output")
     p.add_argument("--rules", choices=["core", "all"], default="core", help="Ruleset to run (currently: core)")
+    p.add_argument(
+        "--severity",
+        choices=["high", "medium", "none"],
+        default="high",
+        help="Exit 1 when reachable findings meet this risk threshold (default: high)",
+    )
     return p
+
 
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
-    results = scan_target(args.path, ruleset=args.rules, progress_callback=_progress_callback)
+
+    try:
+        results = scan_target(args.path, ruleset=args.rules, progress_callback=_progress_callback)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(2)
 
     if args.as_json:
-        print(json.dumps(results, indent=2))
+        print(json_report(results))
     else:
         print(human_report(results))
+
+    sys.exit(_compute_exit_code(results, args.severity))
+
 
 if __name__ == "__main__":
     main()

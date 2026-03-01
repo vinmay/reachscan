@@ -54,16 +54,15 @@ jobs:
         id: run_text
         run: |
           mkdir -p ci-reports
-          # run the CLI on the example folder; adjust path as needed
-          agent-scan examples/demo_agent > ci-reports/agent-scan-report.txt || true
+          agent-scan examples/demo_agent --severity none > ci-reports/agent-scan-report.txt
           echo "::set-output name=text_report::ci-reports/agent-scan-report.txt"
 
       - name: Run scanner (json report)
         id: run_json
         run: |
           mkdir -p ci-reports
-          # JSON output if you implement "--json" flag
-          agent-scan examples/demo_agent --json > ci-reports/agent-scan-report.json || true
+          agent-scan examples/demo_agent --json > ci-reports/agent-scan-report.json
+          # Exits 1 if HIGH reachable capabilities found (default --severity high)
           echo "::set-output name=json_report::ci-reports/agent-scan-report.json"
 
       - name: Upload reports
