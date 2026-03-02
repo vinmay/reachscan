@@ -32,6 +32,21 @@ SECRET_CALL_ATTRS = {
     ("azure.keyvault.secrets", "SecretClient"): "azure.keyvault.secrets.SecretClient",
 }
 
+# Env var name suffixes that indicate configuration, not secrets.
+# When os.getenv / os.environ.get is called with a key whose name ends with
+# one of these suffixes, the finding is suppressed (high FP rate, low signal).
+_NON_SECRET_ENV_SUFFIXES = frozenset({
+    "_PORT", "_HOST", "_TIMEOUT", "_DEBUG", "_LOG_LEVEL",
+    "_WORKERS", "_THREADS", "_ENV", "_MODE", "_URL",
+})
+
+
+def _is_non_secret_env_key(key: str) -> bool:
+    """Return True if the env var key clearly refers to configuration, not a secret."""
+    upper = key.upper()
+    return any(upper.endswith(s) for s in _NON_SECRET_ENV_SUFFIXES)
+
+
 # If these names are imported directly, treat as secrets access.
 # NOTE: "config" is intentionally excluded — it is too ambiguous as a bare name.
 # The legitimate decouple.config() case is caught via SECRET_CALL_ATTRS above.
@@ -109,6 +124,8 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                 key_name = const_str(slc)
                 evidence = f"{resolved}[...]"
                 if key_name:
+                    if _is_non_secret_env_key(key_name):
+                        continue
                     evidence = f"{resolved}[{key_name!r}]"
                 findings.append(CapabilityFinding(
                     capability="SECRETS",
@@ -134,6 +151,9 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                         env_key = arg_const_str(node, 0)
                     for (mod, attr), label in SECRET_CALL_ATTRS.items():
                         if resolved == f"{mod}.{attr}":
+                            # Skip env vars that are obviously configuration, not secrets
+                            if env_key and _is_non_secret_env_key(env_key):
+                                break
                             evidence = label
                             if env_key:
                                 evidence = f"{label}({env_key!r})"

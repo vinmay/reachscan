@@ -6,10 +6,12 @@ regex-based pattern matching. Does NOT perform full TypeScript AST analysis —
 agent-scan intentionally avoids requiring a Node.js runtime dependency.
 
 Coverage (v1):
-  mcp_tool            — server.tool("name", schema, handler)   [MCP SDK]
-  mcp_handler         — server.setRequestHandler(Schema, ...)   [MCP SDK]
+  mcp_tool            — server.tool("name", schema, handler)       [MCP SDK]
+  mcp_tool            — server.registerTool("name", schema, handler) [MCP SDK v1.6+]
+  mcp_tool            — server.addTool({ name: "name", ... })      [FastMCP]
+  mcp_handler         — server.setRequestHandler(Schema, ...)       [MCP SDK]
   mcp_tool_definition — { name: "...", description: ..., inputSchema: ... }  [MCP tool objects]
-  langchain_tool      — new DynamicTool({ name: "...", ... })  [LangChain.js]
+  langchain_tool      — new DynamicTool({ name: "...", ... })      [LangChain.js]
 
 Known limitations (document these, don't hide them):
   - Dynamic registration (variable tool names) is not detected
@@ -104,6 +106,22 @@ _MCP_TOOL_OPEN_RE = re.compile(r'\w+\s*\.\s*tool\s*\(')
 
 # First non-whitespace content on a line is a quoted string (the tool name argument)
 _STRING_FIRST_RE = re.compile(r'^\s*["\']([^"\']+)["\']')
+
+# --- MCP SDK v1.6+: server.registerTool("name", schema, handler) — name on same line ---
+# Identical call convention to server.tool(); just a different method name.
+_MCP_REGISTER_TOOL_RE = re.compile(
+    r'(\w+)\s*\.\s*registerTool\s*\(\s*["\']([^"\']+)["\']'
+)
+
+# --- MCP SDK v1.6+: server.registerTool( — name on the next line ---
+_MCP_REGISTER_TOOL_OPEN_RE = re.compile(r'\w+\s*\.\s*registerTool\s*\(')
+
+# --- FastMCP: server.addTool({ name: "name", ... }) ---
+# Trigger on .addTool( then look for name: property on the same or following lines.
+_MCP_ADD_TOOL_RE = re.compile(r'\w+\s*\.\s*addTool\s*\(')
+
+# How many lines to look ahead for the name: property inside addTool({...})
+_ADD_TOOL_LOOKAHEAD = 10
 
 # --- MCP SDK: server.setRequestHandler(CallToolRequestSchema, handler) ---
 # Detects handler registration. The schema name (group 1) is more informative
@@ -206,6 +224,50 @@ def detect_ts_entry_points(file_path: str, content: str) -> List[TSEntryPoint]:
                         confidence=0.95,
                     ))
 
+        # --- MCP server.registerTool("name", ...) — name on same line ---
+        m = _MCP_REGISTER_TOOL_RE.search(line)
+        if m:
+            name = m.group(2)
+            key = (lineno, name)
+            if key not in seen:
+                seen.add(key)
+                results.append(TSEntryPoint(
+                    name=name,
+                    file=file_path,
+                    lineno=lineno,
+                    pattern_type="mcp_tool",
+                    confidence=0.95,
+                ))
+        # --- MCP server.registerTool( — name on the next line ---
+        elif _MCP_REGISTER_TOOL_OPEN_RE.search(line):
+            name = _find_string_on_next_lines(lines, lineno_0, lookahead=1)
+            if name:
+                key = (lineno, name)
+                if key not in seen:
+                    seen.add(key)
+                    results.append(TSEntryPoint(
+                        name=name,
+                        file=file_path,
+                        lineno=lineno,
+                        pattern_type="mcp_tool",
+                        confidence=0.95,
+                    ))
+
+        # --- FastMCP server.addTool({ name: "name", ... }) ---
+        if _MCP_ADD_TOOL_RE.search(line):
+            name = _find_name_ahead(lines, lineno_0, lookahead=_ADD_TOOL_LOOKAHEAD)
+            if name != "unknown":
+                key = (lineno, name)
+                if key not in seen:
+                    seen.add(key)
+                    results.append(TSEntryPoint(
+                        name=name,
+                        file=file_path,
+                        lineno=lineno,
+                        pattern_type="mcp_tool",
+                        confidence=0.90,
+                    ))
+
         # --- MCP setRequestHandler — schema on same line ---
         m = _MCP_HANDLER_RE.search(line)
         if m:
@@ -304,12 +366,12 @@ def _find_string_on_next_lines(lines: List[str], start_idx: int, lookahead: int)
     return None
 
 
-def _find_name_ahead(lines: List[str], start_idx: int) -> str:
+def _find_name_ahead(lines: List[str], start_idx: int, lookahead: int = _LOOKAHEAD_LINES) -> str:
     """
-    Look ahead up to _LOOKAHEAD_LINES for a `name: "value"` property.
+    Look ahead up to `lookahead` lines (starting from start_idx) for a `name: "value"` property.
     Returns the name if found, "unknown" otherwise.
     """
-    end = min(start_idx + _LOOKAHEAD_LINES, len(lines))
+    end = min(start_idx + lookahead, len(lines))
     for line in lines[start_idx:end]:
         m = _NAME_PROP_RE.search(line)
         if m:

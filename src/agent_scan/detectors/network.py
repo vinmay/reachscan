@@ -42,6 +42,13 @@ HTTP_CONFIG_ATTRS = {
     "Request", "Response", "Headers", "Cookies", "Subprotocol",
 }
 
+# MCP server-side transport module prefixes.
+# These contain "http" in their name but are SERVER infrastructure,
+# not outbound network clients. Suppress the catch-all http-module heuristic for them.
+_MCP_SERVER_MODULE_PREFIXES = frozenset({
+    "mcp.server",
+})
+
 # Function names that are plausibly an HTTP call when a URL literal is passed.
 LITERAL_URL_CALL_NAMES = {
     "get", "post", "put", "delete", "patch", "head", "options",
@@ -159,6 +166,7 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                                 and "urllib.parse" not in full
                                 and "qdrant_client.http.models" not in full
                                 and last_part not in HTTP_CONFIG_ATTRS
+                                and not any(full.startswith(p) for p in _MCP_SERVER_MODULE_PREFIXES)
                             )
                         )
                         if is_http_module:

@@ -139,14 +139,16 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                             ))
                             break
 
-    # Deduplicate by (evidence, lineno)
+    # Deduplicate by evidence alone (one finding per pattern per file).
+    # Multiple asyncio.create_task / Thread.start() calls in the same file all
+    # signal the same capability; emitting each occurrence individually produces
+    # alert spam without adding actionable information.
     seen = set()
     unique: List[CapabilityFinding] = []
     for f in findings:
-        key = (f.evidence, f.lineno)
-        if key in seen:
+        if f.evidence in seen:
             continue
-        seen.add(key)
+        seen.add(f.evidence)
         unique.append(f)
 
     return unique

@@ -355,6 +355,67 @@ class ScheduleMeetingTool(BaseTool):
 
 
 # ---------------------------------------------------------------------------
+# MCP low-level server API: @app.call_tool() / @app.list_tools()
+# ---------------------------------------------------------------------------
+
+def test_mcp_lowlevel_call_tool():
+    """@app.call_tool() dispatch handler is detected as an MCP entry point."""
+    content = '''\
+from mcp.server.lowlevel import Server
+app = Server(name="markitdown-mcp", version="0.1.0")
+
+@app.call_tool()
+async def call_tool(name: str, arguments: dict):
+    if name == "convert":
+        return await convert(arguments["uri"])
+    raise ValueError(f"Unknown tool: {name}")
+'''
+    results = detect_py_entry_points("server.py", content)
+    assert len(results) == 1
+    ep = results[0]
+    assert ep.name == "call_tool"
+    assert ep.framework == "mcp"
+    assert ep.pattern_type == "decorator"
+
+
+def test_mcp_lowlevel_list_tools():
+    """@app.list_tools() handler is detected as an MCP entry point."""
+    content = '''\
+from mcp.server.lowlevel import Server
+app = Server(name="my-server", version="1.0.0")
+
+@app.list_tools()
+async def list_tools():
+    return [{"name": "convert", "description": "..."}]
+'''
+    results = detect_py_entry_points("server.py", content)
+    assert len(results) == 1
+    ep = results[0]
+    assert ep.name == "list_tools"
+    assert ep.framework == "mcp"
+
+
+def test_mcp_lowlevel_both_handlers():
+    """Both @app.call_tool() and @app.list_tools() in same file → 2 entry points."""
+    content = '''\
+from mcp.server.lowlevel import Server
+app = Server(name="svc", version="0.1.0")
+
+@app.list_tools()
+async def list_tools():
+    return []
+
+@app.call_tool()
+async def call_tool(name: str, arguments: dict):
+    pass
+'''
+    results = detect_py_entry_points("server.py", content)
+    assert len(results) == 2
+    names = {ep.name for ep in results}
+    assert names == {"list_tools", "call_tool"}
+
+
+# ---------------------------------------------------------------------------
 # No false positives
 # ---------------------------------------------------------------------------
 

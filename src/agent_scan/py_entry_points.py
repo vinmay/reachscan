@@ -14,6 +14,8 @@ The four patterns (all known frameworks reduce to one of these):
       @mcp.tool()            MCP Python SDK / FastMCP
       @kernel_function()     Semantic Kernel
       @register_for_llm()    AutoGen
+      @app.call_tool()       MCP lowlevel server API (dispatch handler for all tools)
+      @app.list_tools()      MCP lowlevel server API (handler that lists available tools)
 
   Pattern 2 — Class inheriting from a base tool class:
       class MyTool(BaseTool): name = "..."
@@ -88,6 +90,8 @@ ENTRY_POINT_DECORATORS: Dict[str, str] = {
     "function_tool":    FRAMEWORK_OPENAI_AGENTS, # @function_tool
     "kernel_function":  FRAMEWORK_SEMANTIC_KERNEL,
     "register_for_llm": FRAMEWORK_AUTOGEN,
+    "call_tool":        FRAMEWORK_MCP,           # @app.call_tool()   — MCP lowlevel dispatch handler
+    "list_tools":       FRAMEWORK_MCP,           # @app.list_tools()  — MCP lowlevel tool listing
 }
 
 # Maps base class name → default framework label.
@@ -552,6 +556,25 @@ def detect_py_entry_points(file_path: str, content: str) -> List[EntryPoint]:
                 if key not in seen:
                     seen.add(key)
                     results.append(ep)
+
+    # Secondary pass: MCP low-level handlers may appear inside factory functions
+    # (e.g. `def create_app(): app = Server(...); @app.call_tool() async def call_tool()`).
+    # `call_tool` and `list_tools` are MCP-specific enough that using ast.walk
+    # for just these two keys doesn't risk false positives from SDK internals.
+    _MCP_HANDLER_KEYS = frozenset({"call_tool", "list_tools"})
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for decorator in node.decorator_list:
+                dkey, _ = _decorator_key(decorator)
+                if dkey not in _MCP_HANDLER_KEYS:
+                    continue
+                ep = _check_decorator(decorator, node, file_path, imports, inferred)
+                if ep:
+                    result_key = (ep.lineno, ep.name)
+                    if result_key not in seen:
+                        seen.add(result_key)
+                        results.append(ep)
+                break
 
     return results
 

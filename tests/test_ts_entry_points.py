@@ -346,6 +346,111 @@ const t = new DynamicTool({
 
 
 # ---------------------------------------------------------------------------
+# server.registerTool() — MCP SDK v1.6+
+# ---------------------------------------------------------------------------
+
+def test_mcp_register_tool_inline():
+    """server.registerTool("name", schema, handler) — name on same line."""
+    content = 'server.registerTool("resolve-library-id", { description: "..." }, handler);\n'
+    results = detect_ts_entry_points("index.ts", content)
+    assert len(results) == 1
+    assert results[0].name == "resolve-library-id"
+    assert results[0].pattern_type == "mcp_tool"
+    assert results[0].confidence == 0.95
+
+
+def test_mcp_register_tool_multiline():
+    """server.registerTool( with name on the next line."""
+    content = '''\
+server.registerTool(
+  "get-library-docs",
+  { description: "Fetch docs" },
+  handler
+);
+'''
+    results = detect_ts_entry_points("index.ts", content)
+    assert len(results) == 1
+    assert results[0].name == "get-library-docs"
+    assert results[0].lineno == 1
+
+
+def test_mcp_register_tool_multiple():
+    """Multiple registerTool calls are each detected."""
+    content = '''\
+server.registerTool("tool-a", schema, handlerA);
+server.registerTool("tool-b", schema, handlerB);
+'''
+    results = detect_ts_entry_points("index.ts", content)
+    assert len(results) == 2
+    assert {r.name for r in results} == {"tool-a", "tool-b"}
+
+
+def test_mcp_register_tool_no_match_variable_first_arg():
+    """Dynamic name (variable) as first arg must not fire."""
+    content = 'server.registerTool(TOOL_NAME, schema, handler);\n'
+    results = detect_ts_entry_points("index.ts", content)
+    assert results == []
+
+
+# ---------------------------------------------------------------------------
+# server.addTool() — FastMCP
+# ---------------------------------------------------------------------------
+
+def test_mcp_add_tool_multiline():
+    """server.addTool({ name: 'x', ... }) — name on a following line."""
+    content = '''\
+server.addTool({
+  name: 'firecrawl_scrape',
+  description: 'Scrape content from a URL',
+  parameters: z.object({ url: z.string() }),
+  execute: async ({ url }) => fetch(url),
+});
+'''
+    results = detect_ts_entry_points("index.ts", content)
+    assert len(results) == 1
+    assert results[0].name == "firecrawl_scrape"
+    assert results[0].pattern_type == "mcp_tool"
+    assert results[0].confidence == 0.90
+
+
+def test_mcp_add_tool_inline():
+    """server.addTool with name: on same line as addTool(."""
+    content = "server.addTool({ name: 'quick_tool', execute: handler });\n"
+    results = detect_ts_entry_points("index.ts", content)
+    assert len(results) == 1
+    assert results[0].name == "quick_tool"
+
+
+def test_mcp_add_tool_multiple():
+    """Multiple addTool calls are each detected."""
+    content = '''\
+server.addTool({
+  name: 'tool_one',
+  execute: handlerOne,
+});
+server.addTool({
+  name: 'tool_two',
+  execute: handlerTwo,
+});
+'''
+    results = detect_ts_entry_points("index.ts", content)
+    assert len(results) == 2
+    assert {r.name for r in results} == {"tool_one", "tool_two"}
+
+
+def test_mcp_add_tool_no_name_skipped():
+    """addTool({}) with no name: property within lookahead → skipped (name='unknown')."""
+    content = '''\
+server.addTool({
+  execute: handler,
+});
+'''
+    results = detect_ts_entry_points("index.ts", content)
+    # name would be "unknown" → should not be emitted
+    assert results == []
+
+
+# ---------------------------------------------------------------------------
 # No false positives on plain TypeScript
 # ---------------------------------------------------------------------------
 
