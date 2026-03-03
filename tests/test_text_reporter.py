@@ -34,6 +34,22 @@ def test_report_shows_no_files_notice_when_nothing_found():
     assert "No Python or TypeScript files were found for analysis." in out
 
 
+def test_report_shows_ts_files_without_entry_points_notice():
+    results = {
+        "target": "/tmp/ts-no-entrypoints",
+        "num_files_scanned": 0,
+        "num_ts_files_scanned": 24,
+        "findings": [],
+        "capabilities": [],
+        "risks": [],
+        "ts_entry_points": [],
+    }
+    out = human_report(results)
+    assert "TypeScript/JavaScript files scanned: 24" in out
+    assert "Found 24 TypeScript/JavaScript files" in out
+    assert "No Python or TypeScript files were found for analysis." not in out
+
+
 def test_report_shows_ts_notice_when_only_ts_found():
     results = {
         "target": "/tmp/ts-only-project",

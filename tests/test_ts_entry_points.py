@@ -5,6 +5,7 @@ from pathlib import Path
 from agent_scan.ts_entry_points import (
     detect_ts_entry_points,
     scan_ts_files,
+    count_ts_files,
     _is_excluded_ts_file,
 )
 
@@ -577,3 +578,11 @@ def test_scan_single_ts_file(tmp_path):
     results = scan_ts_files(f)
     assert len(results) == 1
     assert results[0].name == "single_file_tool"
+
+
+def test_count_ts_files_excludes_declarations_and_tests(tmp_path):
+    (tmp_path / "src").mkdir(parents=True)
+    (tmp_path / "src" / "tools.ts").write_text("export const x = 1;\n")
+    (tmp_path / "src" / "types.d.ts").write_text("export type X = string;\n")
+    (tmp_path / "src" / "tools.test.ts").write_text("describe('x', () => {});\n")
+    assert count_ts_files(tmp_path) == 1

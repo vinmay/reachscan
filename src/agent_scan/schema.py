@@ -79,6 +79,7 @@ def build_v1_report(results: Dict[str, Any]) -> Dict[str, Any]:
         "source_type": results.get("source_type", "local"),
         "resolved_version": results.get("resolved_version"),
         "num_files_scanned": results.get("num_files_scanned", 0),
+        "num_ts_files_scanned": results.get("num_ts_files_scanned", 0),
         "entry_points_detected": entry_points_detected,
         "py_entry_points": py_entry_points,
         "ts_entry_points": ts_entry_points,

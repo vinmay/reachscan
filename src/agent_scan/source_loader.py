@@ -213,7 +213,7 @@ def _mcp_initialize(endpoint: str) -> None:
         "params": {
             "protocolVersion": "2024-11-05",
             "capabilities": {},
-            "clientInfo": {"name": "agent-scan", "version": "0.0.1"},
+            "clientInfo": {"name": "agent-scan", "version": "0.1.0"},
         },
     }
     try:

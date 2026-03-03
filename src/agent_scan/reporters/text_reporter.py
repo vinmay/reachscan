@@ -148,6 +148,7 @@ def human_report(results: Dict[str, Any]) -> str:
 
     # TypeScript entry points
     ts_entry_points = results.get("ts_entry_points", [])
+    ts_files_scanned = int(results.get("num_ts_files_scanned", 0) or 0)
     if ts_entry_points:
         lines.append("TypeScript Entry Points (LLM-controlled surface)")
         lines.append("-" * 49)
@@ -158,6 +159,12 @@ def human_report(results: Dict[str, Any]) -> str:
             lno   = ep.get("lineno", "")
             lines.append(f"  • {name}  ({ptype} @ {fpath}:{lno})")
         lines.append("")
+    elif ts_files_scanned > 0:
+        lines.append(
+            f"TypeScript/JavaScript files scanned: {ts_files_scanned} "
+            "(no supported LLM entry-point patterns detected)"
+        )
+        lines.append("")
 
     if results.get("num_files_scanned", 0) == 0:
         other_languages = results.get("other_languages", [])
@@ -165,6 +172,14 @@ def human_report(results: Dict[str, Any]) -> str:
             lines.append("⚠  Full capability analysis requires Python source.")
             lines.append("   TypeScript function bodies are not yet analyzed.")
             lines.append("   Entry points above show what the LLM can call.")
+        elif ts_files_scanned > 0:
+            lines.append(
+                f"Found {ts_files_scanned} TypeScript/JavaScript files, "
+                "but no supported entry-point registrations were detected."
+            )
+            lines.append(
+                "Supported patterns currently include MCP tool/handler registration and LangChain DynamicTool."
+            )
         elif other_languages:
             lang_summary = ", ".join(
                 f"{l['language']} ({l['count']} files)" for l in other_languages
@@ -182,5 +197,8 @@ def human_report(results: Dict[str, Any]) -> str:
     version_note = ""
     if resolved_version and resolved_version not in target_str:
         version_note = f" (version {resolved_version})"
-    lines.append(f"Scanned: {results.get('num_files_scanned', 0)} python files under {target_str}{version_note}")
+    lines.append(
+        f"Scanned: {results.get('num_files_scanned', 0)} python files, "
+        f"{ts_files_scanned} TypeScript/JavaScript files under {target_str}{version_note}"
+    )
     return "\n".join(lines)

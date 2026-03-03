@@ -390,20 +390,31 @@ def scan_ts_files(root: Path) -> List[TSEntryPoint]:
     Skips: .d.ts, .test.ts, .spec.ts, .min.js, and any file under
     node_modules, dist, build, or other excluded directory components.
     """
-    root = Path(root)
     results: List[TSEntryPoint] = []
+    for p in _iter_ts_files(Path(root)):
+        _scan_one(p, results)
 
+    return results
+
+
+def count_ts_files(root: Path) -> int:
+    """Return the number of TypeScript/JavaScript source files eligible for scanning."""
+    return len(_iter_ts_files(Path(root)))
+
+
+def _iter_ts_files(root: Path) -> List[Path]:
+    """Collect all eligible TypeScript/JavaScript files under root."""
     if root.is_file():
         if root.suffix in _TS_EXTENSIONS and not _is_excluded_ts_file(root):
-            _scan_one(root, results)
-        return results
+            return [root]
+        return []
 
+    files: List[Path] = []
     for ext in _TS_EXTENSIONS:
         for p in root.rglob(f"*{ext}"):
             if not _is_excluded_ts_file(p):
-                _scan_one(p, results)
-
-    return results
+                files.append(p)
+    return files
 
 
 def _scan_one(path: Path, results: List[TSEntryPoint]) -> None:

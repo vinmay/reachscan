@@ -17,6 +17,7 @@ The schema is **stable**: new fields may be added in future minor versions, but 
 | `source_type` | `string` | Yes | One of: `"local"`, `"github"`, `"mcp"`, `"pypi"` |
 | `resolved_version` | `string\|null` | Yes | Resolved package version for PyPI targets; `null` for all other sources |
 | `num_files_scanned` | `integer` | Yes | Number of Python files analyzed |
+| `num_ts_files_scanned` | `integer` | Yes | Number of TypeScript/JavaScript files scanned for entry-point patterns |
 | `entry_points_detected` | `integer` | Yes | Total LLM-callable entry points detected (`py_entry_points + ts_entry_points`) |
 | `py_entry_points` | `array` | Yes | Python LLM entry points (see [Python entry point object](#python-entry-point-object)) |
 | `ts_entry_points` | `array` | Yes | TypeScript/JavaScript entry points (see [TS entry point object](#typescript-entry-point-object)) |

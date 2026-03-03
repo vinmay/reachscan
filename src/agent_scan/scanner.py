@@ -12,7 +12,7 @@ from agent_scan.analysis.finding_enrichment import enrich_finding
 from agent_scan.analysis.impact import analyze_combined_capabilities
 from agent_scan.source_loader import ProgressCallback
 from agent_scan.source_loader import resolve_target
-from agent_scan.ts_entry_points import scan_ts_files, TSEntryPoint
+from agent_scan.ts_entry_points import scan_ts_files, count_ts_files, TSEntryPoint
 from agent_scan.py_entry_points import scan_py_files, EntryPoint as PyEntryPoint
 from agent_scan.call_graph import build_call_graph
 from agent_scan.reachability import analyze_reachability
@@ -282,6 +282,7 @@ def scan_path(
 
     # TypeScript/JavaScript entry point detection
     ts_entry_points = scan_ts_files(path)
+    num_ts_files_scanned = count_ts_files(path)
 
     # Python entry point detection
     py_entry_points = scan_py_files(path)
@@ -304,6 +305,7 @@ def scan_path(
         "findings": findings,
         "capabilities": capability_keys,
         "risks": risks,
+        "num_ts_files_scanned": num_ts_files_scanned,
         "ts_entry_points": [ep.as_dict() for ep in ts_entry_points],
         "py_entry_points": [ep.as_dict() for ep in py_entry_points],
         "other_languages": other_languages,
