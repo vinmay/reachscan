@@ -1,4 +1,4 @@
-from agent_scan.detectors.network import scan_file
+from reachscan.detectors.network import scan_file
 
 
 def test_requests_detect():

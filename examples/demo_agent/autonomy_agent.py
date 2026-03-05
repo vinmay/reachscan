@@ -1,6 +1,6 @@
 """
 Demo agent showing autonomy patterns.
-This file is designed to be *scanned* (statically) by agent-scan.
+This file is designed to be *scanned* (statically) by reachscan.
 
 It does not run background tasks by default; functions are not called.
 """

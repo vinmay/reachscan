@@ -2,7 +2,7 @@
 
 import pytest
 from pathlib import Path
-from agent_scan.py_entry_points import (
+from reachscan.py_entry_points import (
     detect_py_entry_points,
     scan_py_files,
     _is_excluded_py_file,
@@ -838,7 +838,7 @@ def test_resolve_framework_step5_receiver_hint_no_import():
 def test_resolve_framework_step6_key_in_decorators():
     """Step 6: key in ENTRY_POINT_DECORATORS, no import, no hint → 0.60, dict default."""
     fw, conf = _resolve_framework("function_tool", None, {})
-    from agent_scan.py_entry_points import FRAMEWORK_OPENAI_AGENTS
+    from reachscan.py_entry_points import FRAMEWORK_OPENAI_AGENTS
     assert fw == FRAMEWORK_OPENAI_AGENTS
     assert conf == 0.60
 

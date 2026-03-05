@@ -1,4 +1,4 @@
-from agent_scan.reporters.text_reporter import human_report, _format_path
+from reachscan.reporters.text_reporter import human_report, _format_path
 
 
 def test_report_shows_other_languages_when_no_supported_files():
@@ -18,7 +18,7 @@ def test_report_shows_other_languages_when_no_supported_files():
     assert "No Python or TypeScript files were found for analysis." in out
     assert "Go (146 files)" in out
     assert "Shell (8 files)" in out
-    assert "agent-scan currently supports Python" in out
+    assert "reachscan currently supports Python" in out
 
 
 def test_report_shows_no_files_notice_when_nothing_found():
@@ -32,6 +32,22 @@ def test_report_shows_no_files_notice_when_nothing_found():
     }
     out = human_report(results)
     assert "No Python or TypeScript files were found for analysis." in out
+
+
+def test_report_shows_ts_files_without_entry_points_notice():
+    results = {
+        "target": "/tmp/ts-no-entrypoints",
+        "num_files_scanned": 0,
+        "num_ts_files_scanned": 24,
+        "findings": [],
+        "capabilities": [],
+        "risks": [],
+        "ts_entry_points": [],
+    }
+    out = human_report(results)
+    assert "TypeScript/JavaScript files scanned: 24" in out
+    assert "Found 24 TypeScript/JavaScript files" in out
+    assert "No Python or TypeScript files were found for analysis." not in out
 
 
 def test_report_shows_ts_notice_when_only_ts_found():

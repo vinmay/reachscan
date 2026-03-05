@@ -1,4 +1,4 @@
-"""Detector base types and data model for agent-scan detectors.
+"""Detector base types and data model for reachscan detectors.
 
 - CapabilityFinding: canonical data returned by detectors
 - Detector: protocol for class-based detectors (optional)

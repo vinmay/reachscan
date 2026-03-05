@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from agent_scan.scanner import scan_path
+from reachscan.scanner import scan_path
 
 
 def test_scanner_outputs_enriched_findings_and_risks(tmp_path: Path):

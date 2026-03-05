@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-scan"
-version = "0.0.1"
-description = "Agent capability scanner: tells you what your AI agent can access, change and send before it does."
+name = "reachscan"
+version = "0.1.0"
+description = "Reachability-based capability scanner for AI agent and MCP server codebases."
 readme = "README.md"
 authors = [{name = "Vinmay Nair", email = "vinmay.nair@gmail.com"}]
 license = {text = "Apache-2.0"}
@@ -14,13 +14,13 @@ license = {text = "Apache-2.0"}
 dev = ["pytest", "ruff", "pipx", "click"]
 
 [project.urls]
-"Homepage" = "https://github.com/vinmay/agent-scan"
+"Homepage" = "https://github.com/vinmay/reachscan"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [project.scripts]
-agent-scan = "agent_scan.cli:main"
+reachscan = "reachscan.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

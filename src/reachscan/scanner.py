@@ -6,17 +6,17 @@ over Python files under a given path and returns a normalized report object.
 import hashlib
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from agent_scan.detectors.registry import get_detectors, call_detector
-from agent_scan.detectors.base import CapabilityFinding
-from agent_scan.analysis.finding_enrichment import enrich_finding
-from agent_scan.analysis.impact import analyze_combined_capabilities
-from agent_scan.source_loader import ProgressCallback
-from agent_scan.source_loader import resolve_target
-from agent_scan.ts_entry_points import scan_ts_files, TSEntryPoint
-from agent_scan.py_entry_points import scan_py_files, EntryPoint as PyEntryPoint
-from agent_scan.call_graph import build_call_graph
-from agent_scan.reachability import analyze_reachability
-from agent_scan import detectors  # noqa: F401 - ensures detector modules register themselves
+from reachscan.detectors.registry import get_detectors, call_detector
+from reachscan.detectors.base import CapabilityFinding
+from reachscan.analysis.finding_enrichment import enrich_finding
+from reachscan.analysis.impact import analyze_combined_capabilities
+from reachscan.source_loader import ProgressCallback
+from reachscan.source_loader import resolve_target
+from reachscan.ts_entry_points import scan_ts_files, count_ts_files, TSEntryPoint
+from reachscan.py_entry_points import scan_py_files, EntryPoint as PyEntryPoint
+from reachscan.call_graph import build_call_graph
+from reachscan.reachability import analyze_reachability
+from reachscan import detectors  # noqa: F401 - ensures detector modules register themselves
 
 
 def make_finding_id(
@@ -282,6 +282,7 @@ def scan_path(
 
     # TypeScript/JavaScript entry point detection
     ts_entry_points = scan_ts_files(path)
+    num_ts_files_scanned = count_ts_files(path)
 
     # Python entry point detection
     py_entry_points = scan_py_files(path)
@@ -304,6 +305,7 @@ def scan_path(
         "findings": findings,
         "capabilities": capability_keys,
         "risks": risks,
+        "num_ts_files_scanned": num_ts_files_scanned,
         "ts_entry_points": [ep.as_dict() for ep in ts_entry_points],
         "py_entry_points": [ep.as_dict() for ep in py_entry_points],
         "other_languages": other_languages,

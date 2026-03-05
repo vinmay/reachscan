@@ -4,7 +4,7 @@ import ast
 import pytest
 from pathlib import Path
 
-from agent_scan.call_graph import (
+from reachscan.call_graph import (
     build_call_graph,
     _build_reexport_map,
     _collect_file_imports,

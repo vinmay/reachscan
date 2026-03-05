@@ -1,7 +1,7 @@
 """Tests for CLI exit code contract and --severity flag."""
 import pytest
 
-from agent_scan.cli import main, _compute_exit_code
+from reachscan.cli import main, _compute_exit_code
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ def _stub_results(findings=None):
 
 
 def test_main_exits_0_no_findings(monkeypatch, capsys):
-    monkeypatch.setattr("agent_scan.cli.scan_target", lambda *a, **kw: _stub_results())
+    monkeypatch.setattr("reachscan.cli.scan_target", lambda *a, **kw: _stub_results())
     with pytest.raises(SystemExit) as exc:
         main([".", "--severity", "high"])
     assert exc.value.code == 0
@@ -82,7 +82,7 @@ def test_main_exits_0_no_findings(monkeypatch, capsys):
 
 def test_main_exits_1_reachable_high_finding(monkeypatch, capsys):
     findings = [_finding("reachable", "high")]
-    monkeypatch.setattr("agent_scan.cli.scan_target", lambda *a, **kw: _stub_results(findings))
+    monkeypatch.setattr("reachscan.cli.scan_target", lambda *a, **kw: _stub_results(findings))
     with pytest.raises(SystemExit) as exc:
         main([".", "--severity", "high"])
     assert exc.value.code == 1
@@ -90,7 +90,7 @@ def test_main_exits_1_reachable_high_finding(monkeypatch, capsys):
 
 def test_main_exits_0_reachable_medium_severity_high(monkeypatch, capsys):
     findings = [_finding("reachable", "medium")]
-    monkeypatch.setattr("agent_scan.cli.scan_target", lambda *a, **kw: _stub_results(findings))
+    monkeypatch.setattr("reachscan.cli.scan_target", lambda *a, **kw: _stub_results(findings))
     with pytest.raises(SystemExit) as exc:
         main([".", "--severity", "high"])
     assert exc.value.code == 0
@@ -98,7 +98,7 @@ def test_main_exits_0_reachable_medium_severity_high(monkeypatch, capsys):
 
 def test_main_exits_1_reachable_medium_severity_medium(monkeypatch, capsys):
     findings = [_finding("reachable", "medium")]
-    monkeypatch.setattr("agent_scan.cli.scan_target", lambda *a, **kw: _stub_results(findings))
+    monkeypatch.setattr("reachscan.cli.scan_target", lambda *a, **kw: _stub_results(findings))
     with pytest.raises(SystemExit) as exc:
         main([".", "--severity", "medium"])
     assert exc.value.code == 1
@@ -106,7 +106,7 @@ def test_main_exits_1_reachable_medium_severity_medium(monkeypatch, capsys):
 
 def test_main_exits_0_severity_none_with_high_finding(monkeypatch, capsys):
     findings = [_finding("reachable", "high")]
-    monkeypatch.setattr("agent_scan.cli.scan_target", lambda *a, **kw: _stub_results(findings))
+    monkeypatch.setattr("reachscan.cli.scan_target", lambda *a, **kw: _stub_results(findings))
     with pytest.raises(SystemExit) as exc:
         main([".", "--severity", "none"])
     assert exc.value.code == 0
@@ -115,7 +115,7 @@ def test_main_exits_0_severity_none_with_high_finding(monkeypatch, capsys):
 def test_main_exits_2_on_scan_error(monkeypatch, capsys):
     def bad_scan(*a, **kw):
         raise RuntimeError("network timeout")
-    monkeypatch.setattr("agent_scan.cli.scan_target", bad_scan)
+    monkeypatch.setattr("reachscan.cli.scan_target", bad_scan)
     with pytest.raises(SystemExit) as exc:
         main(["."])
     assert exc.value.code == 2
@@ -123,7 +123,7 @@ def test_main_exits_2_on_scan_error(monkeypatch, capsys):
 
 def test_main_exits_0_unreachable_findings_only(monkeypatch, capsys):
     findings = [_finding("unreachable", "high"), _finding("module_level", "high")]
-    monkeypatch.setattr("agent_scan.cli.scan_target", lambda *a, **kw: _stub_results(findings))
+    monkeypatch.setattr("reachscan.cli.scan_target", lambda *a, **kw: _stub_results(findings))
     with pytest.raises(SystemExit) as exc:
         main([".", "--severity", "high"])
     assert exc.value.code == 0
@@ -131,12 +131,12 @@ def test_main_exits_0_unreachable_findings_only(monkeypatch, capsys):
 
 def test_main_json_output_uses_v1_schema(monkeypatch, capsys):
     import json
-    monkeypatch.setattr("agent_scan.cli.scan_target", lambda *a, **kw: _stub_results())
+    monkeypatch.setattr("reachscan.cli.scan_target", lambda *a, **kw: _stub_results())
     with pytest.raises(SystemExit):
         main([".", "--json"])
     out = capsys.readouterr().out
     data = json.loads(out)
     assert data["schema_version"] == "1"
     assert "generated_at" in data
-    assert "agent_scan_version" in data
+    assert "reachscan_version" in data
     assert "report" not in data

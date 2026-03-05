@@ -1,4 +1,4 @@
-from agent_scan.detectors.file_access import scan_file
+from reachscan.detectors.file_access import scan_file
 
 def test_open_read():
     src = 'f = open("secrets.txt", "r")'

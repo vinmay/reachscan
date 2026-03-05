@@ -1,5 +1,5 @@
 import pytest
-from agent_scan.detectors.secrets import scan_file
+from reachscan.detectors.secrets import scan_file
 
 def test_os_environ_get():
     src = 'import os\nval = os.environ.get("API_KEY")'

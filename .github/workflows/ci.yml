@@ -54,24 +54,24 @@ jobs:
         id: run_text
         run: |
           mkdir -p ci-reports
-          agent-scan examples/demo_agent --severity none > ci-reports/agent-scan-report.txt
-          echo "::set-output name=text_report::ci-reports/agent-scan-report.txt"
+          reachscan examples/demo_agent --severity none > ci-reports/reachscan-report.txt
+          echo "::set-output name=text_report::ci-reports/reachscan-report.txt"
 
       - name: Run scanner (json report)
         id: run_json
         run: |
           mkdir -p ci-reports
-          agent-scan examples/demo_agent --json > ci-reports/agent-scan-report.json
+          reachscan examples/demo_agent --json > ci-reports/reachscan-report.json
           # Exits 1 if HIGH reachable capabilities found (default --severity high)
-          echo "::set-output name=json_report::ci-reports/agent-scan-report.json"
+          echo "::set-output name=json_report::ci-reports/reachscan-report.json"
 
       - name: Upload reports
         uses: actions/upload-artifact@v4
         with:
-          name: agent-scan-reports-py${{ matrix.python-version }}
+          name: reachscan-reports-py${{ matrix.python-version }}
           path: ci-reports/
 
       - name: Show short summary (for logs)
         run: |
           echo "==== short summary of text report ===="
-          head -n 40 ci-reports/agent-scan-report.txt || true
+          head -n 40 ci-reports/reachscan-report.txt || true

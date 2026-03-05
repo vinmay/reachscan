@@ -1,4 +1,4 @@
-from agent_scan.detectors.autonomy import scan_file
+from reachscan.detectors.autonomy import scan_file
 
 def test_thread_start():
     src = 'import threading\nt = threading.Thread(target=lambda: None)\nt.start()'

@@ -1,5 +1,5 @@
 """
-Detector registry for agent-scan.
+Detector registry for reachscan.
 
 Usage patterns supported:
 

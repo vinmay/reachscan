@@ -1,6 +1,6 @@
 """
 Demo agent showing dynamic execution patterns.
-This file is designed to be *scanned* (statically) by agent-scan.
+This file is designed to be *scanned* (statically) by reachscan.
 
 It does not execute any dynamic code by default; functions are not called.
 """

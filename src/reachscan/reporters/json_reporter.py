@@ -1,6 +1,6 @@
 from typing import Any, Dict
 import json
-from agent_scan.schema import build_v1_report
+from reachscan.schema import build_v1_report
 
 
 def json_report(results: Dict[str, Any]) -> str:

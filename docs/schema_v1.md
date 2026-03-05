@@ -1,6 +1,6 @@
-# agent-scan JSON Schema v1
+# reachscan JSON Schema v1
 
-This document is the canonical reference for the `--json` output format introduced in agent-scan v1.
+This document is the canonical reference for the `--json` output format introduced in reachscan v1.
 
 The schema is **stable**: new fields may be added in future minor versions, but existing fields will not be removed or renamed without a major schema version bump.
 
@@ -12,11 +12,12 @@ The schema is **stable**: new fields may be added in future minor versions, but 
 |-------|------|----------------|-------------|
 | `schema_version` | `string` | Yes | Always `"1"` for this schema version |
 | `generated_at` | `string` | Yes | UTC ISO-8601 timestamp (`YYYY-MM-DDTHH:MM:SSZ`) |
-| `agent_scan_version` | `string` | Yes | Version of the agent-scan package; `"unknown"` if not installed |
+| `reachscan_version` | `string` | Yes | Version of the reachscan package; `"unknown"` if not installed |
 | `target` | `string` | Yes | The scan target as provided (path, URL, or `pypi:name==version`) |
 | `source_type` | `string` | Yes | One of: `"local"`, `"github"`, `"mcp"`, `"pypi"` |
 | `resolved_version` | `string\|null` | Yes | Resolved package version for PyPI targets; `null` for all other sources |
 | `num_files_scanned` | `integer` | Yes | Number of Python files analyzed |
+| `num_ts_files_scanned` | `integer` | Yes | Number of TypeScript/JavaScript files scanned for entry-point patterns |
 | `entry_points_detected` | `integer` | Yes | Total LLM-callable entry points detected (`py_entry_points + ts_entry_points`) |
 | `py_entry_points` | `array` | Yes | Python LLM entry points (see [Python entry point object](#python-entry-point-object)) |
 | `ts_entry_points` | `array` | Yes | TypeScript/JavaScript entry points (see [TS entry point object](#typescript-entry-point-object)) |
@@ -138,7 +139,7 @@ Each element of `other_languages` (populated only when no Python files were foun
 {
   "schema_version": "1",
   "generated_at": "2025-10-01T14:23:00Z",
-  "agent_scan_version": "0.1.0",
+  "reachscan_version": "0.1.0",
   "target": "pypi:openai-agents==0.0.19",
   "source_type": "pypi",
   "resolved_version": "0.0.19",

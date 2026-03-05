@@ -1,6 +1,6 @@
 """
 Demo agent showing secrets/credentials access patterns.
-This file is designed to be *scanned* (statically) by agent-scan.
+This file is designed to be *scanned* (statically) by reachscan.
 
 It does not execute any secret retrieval by default; functions are not called.
 """

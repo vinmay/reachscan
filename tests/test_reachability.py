@@ -4,14 +4,14 @@ import warnings
 
 import pytest
 
-from agent_scan.call_graph import MODULE_LEVEL
-from agent_scan.py_entry_points import (
+from reachscan.call_graph import MODULE_LEVEL
+from reachscan.py_entry_points import (
     EntryPoint,
     FRAMEWORK_LANGCHAIN,
     PATTERN_CLASS_ATTRIBUTE,
     PATTERN_DECORATOR,
 )
-from agent_scan.reachability import (
+from reachscan.reachability import (
     DISPLAY_DEPTH,
     MODULE_LEVEL_STATE,
     NO_ENTRY_POINTS,
