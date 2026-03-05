@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from agent_scan.scanner import scan_target
+from reachscan.scanner import scan_target
 
 
 def test_scan_target_local(tmp_path: Path):
@@ -23,7 +23,7 @@ def test_scan_target_github(monkeypatch, tmp_path: Path):
             progress_callback("github_clone", 100, "Clone complete")
             events.append("called")
 
-    monkeypatch.setattr("agent_scan.source_loader._clone_github_repo", fake_clone)
+    monkeypatch.setattr("reachscan.source_loader._clone_github_repo", fake_clone)
 
     report = scan_target("https://github.com/example/project", progress_callback=lambda *_: None)
     assert report["source_type"] == "github"
@@ -37,7 +37,7 @@ def test_scan_target_mcp(monkeypatch):
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "demo.py").write_text("x = open('data.txt', 'w')", encoding="utf-8")
 
-    monkeypatch.setattr("agent_scan.source_loader._materialize_mcp_endpoint", fake_materialize)
+    monkeypatch.setattr("reachscan.source_loader._materialize_mcp_endpoint", fake_materialize)
 
     report = scan_target("mcp+https://mcp.example.com")
     assert report["source_type"] == "mcp"

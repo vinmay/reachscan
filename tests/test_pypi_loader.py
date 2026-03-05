@@ -2,7 +2,7 @@
 import pytest
 from pathlib import Path
 
-from agent_scan.source_loader import (
+from reachscan.source_loader import (
     _is_pypi_target,
     _parse_pypi_target,
     resolve_target,
@@ -75,7 +75,7 @@ def _make_fake_fetch(version="2.31.0"):
 
 def test_resolve_target_pypi_bare(monkeypatch):
     monkeypatch.setattr(
-        "agent_scan.source_loader._fetch_pypi_package", _make_fake_fetch("2.31.0")
+        "reachscan.source_loader._fetch_pypi_package", _make_fake_fetch("2.31.0")
     )
     with resolve_target("pypi:requests") as resolved:
         assert resolved.source_type == "pypi"
@@ -86,7 +86,7 @@ def test_resolve_target_pypi_bare(monkeypatch):
 
 def test_resolve_target_pypi_versioned(monkeypatch):
     monkeypatch.setattr(
-        "agent_scan.source_loader._fetch_pypi_package", _make_fake_fetch("2.28.0")
+        "reachscan.source_loader._fetch_pypi_package", _make_fake_fetch("2.28.0")
     )
     with resolve_target("pypi:requests==2.28.0") as resolved:
         assert resolved.source_type == "pypi"
@@ -99,7 +99,7 @@ def test_resolve_target_pypi_not_found(monkeypatch):
         raise RuntimeError(f"PyPI: package '{name}' not found.")
 
     monkeypatch.setattr(
-        "agent_scan.source_loader._fetch_pypi_package", fake_fetch_error
+        "reachscan.source_loader._fetch_pypi_package", fake_fetch_error
     )
     with pytest.raises(RuntimeError, match="not found"):
         with resolve_target("pypi:doesnotexist-package-xyz") as _:
@@ -112,7 +112,7 @@ def test_resolve_target_pypi_tmp_cleaned_up(monkeypatch):
         (out_dir / "stub.py").write_text("x = 1", encoding="utf-8")
         return "1.0.0"
 
-    monkeypatch.setattr("agent_scan.source_loader._fetch_pypi_package", fake_fetch)
+    monkeypatch.setattr("reachscan.source_loader._fetch_pypi_package", fake_fetch)
 
     with resolve_target("pypi:somepackage") as resolved:
         tmp = resolved.local_path
@@ -131,7 +131,7 @@ def test_resolve_target_pypi_progress_callback_called(monkeypatch):
         (out_dir / "stub.py").write_text("x = 1", encoding="utf-8")
         return "1.0.0"
 
-    monkeypatch.setattr("agent_scan.source_loader._fetch_pypi_package", fake_fetch)
+    monkeypatch.setattr("reachscan.source_loader._fetch_pypi_package", fake_fetch)
 
     with resolve_target("pypi:somepackage", progress_callback=lambda s, p, d: calls.append(s)) as _:
         pass
@@ -145,13 +145,13 @@ def test_resolve_target_pypi_progress_callback_called(monkeypatch):
 
 def test_scan_target_sets_resolved_version(monkeypatch, tmp_path):
     """scan_target stamps resolved_version from the PyPI source into the report."""
-    from agent_scan.scanner import scan_target
+    from reachscan.scanner import scan_target
 
     def fake_fetch(name, ver, out_dir, progress_callback=None):
         (out_dir / "agent.py").write_text("import os\nos.getenv('KEY')", encoding="utf-8")
         return "3.0.1"
 
-    monkeypatch.setattr("agent_scan.source_loader._fetch_pypi_package", fake_fetch)
+    monkeypatch.setattr("reachscan.source_loader._fetch_pypi_package", fake_fetch)
 
     report = scan_target("pypi:somepackage")
     assert report["source_type"] == "pypi"
@@ -161,7 +161,7 @@ def test_scan_target_sets_resolved_version(monkeypatch, tmp_path):
 
 def test_text_report_shows_version(monkeypatch):
     """human_report includes the resolved version in the footer line."""
-    from agent_scan.reporters.text_reporter import human_report
+    from reachscan.reporters.text_reporter import human_report
 
     results = {
         "target": "requests",
@@ -181,7 +181,7 @@ def test_text_report_shows_version(monkeypatch):
 
 def test_text_report_no_version_for_local(monkeypatch):
     """human_report does not mention version for local/github scans."""
-    from agent_scan.reporters.text_reporter import human_report
+    from reachscan.reporters.text_reporter import human_report
 
     results = {
         "target": "/tmp/myproject",

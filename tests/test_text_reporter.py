@@ -1,4 +1,4 @@
-from agent_scan.reporters.text_reporter import human_report, _format_path
+from reachscan.reporters.text_reporter import human_report, _format_path
 
 
 def test_report_shows_other_languages_when_no_supported_files():
@@ -18,7 +18,7 @@ def test_report_shows_other_languages_when_no_supported_files():
     assert "No Python or TypeScript files were found for analysis." in out
     assert "Go (146 files)" in out
     assert "Shell (8 files)" in out
-    assert "agent-scan currently supports Python" in out
+    assert "reachscan currently supports Python" in out
 
 
 def test_report_shows_no_files_notice_when_nothing_found():

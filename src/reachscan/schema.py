@@ -1,4 +1,4 @@
-"""Stable v1 JSON schema for agent-scan reports."""
+"""Stable v1 JSON schema for reachscan reports."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any, Dict
 
 def _get_tool_version() -> str:
     try:
-        return version("agent-scan")
+        return version("reachscan")
     except PackageNotFoundError:
         return "unknown"
 
@@ -74,7 +74,7 @@ def build_v1_report(results: Dict[str, Any]) -> Dict[str, Any]:
     report: Dict[str, Any] = {
         "schema_version": "1",
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "agent_scan_version": _get_tool_version(),
+        "reachscan_version": _get_tool_version(),
         "target": results.get("target", ""),
         "source_type": results.get("source_type", "local"),
         "resolved_version": results.get("resolved_version"),

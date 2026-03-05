@@ -1,6 +1,6 @@
 """
 Demo agent that intentionally contains many file read/write patterns.
-This file is designed to be *scanned* (statically) by agent-scan and should
+This file is designed to be *scanned* (statically) by reachscan and should
 produce high-severity signals (READ, WRITE).
 
 **SAFETY:** This script will NOT perform any destructive or exfiltrating actions
@@ -17,7 +17,7 @@ from pathlib import Path
 import json
 import zipfile
 
-DEMO_HOME = Path("/tmp/agent_scan_demo_home")
+DEMO_HOME = Path("/tmp/reachscan_demo_home")
 DEMO_DOCUMENTS = DEMO_HOME / "documents"
 DEMO_SENSITIVE_PATHS = [
     DEMO_HOME / ".ssh" / "id_rsa",

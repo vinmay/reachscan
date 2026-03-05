@@ -2,7 +2,7 @@
 
 import pytest
 from pathlib import Path
-from agent_scan.ts_entry_points import (
+from reachscan.ts_entry_points import (
     detect_ts_entry_points,
     scan_ts_files,
     count_ts_files,

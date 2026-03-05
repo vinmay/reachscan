@@ -1,4 +1,4 @@
-# agent-scan
+# reachscan
 
 > Static capability analysis for Python and TypeScript/JavaScript AI code.
 > Know what it can do before it does it.
@@ -11,7 +11,7 @@ You're giving an LLM tools. Tools mean real-world access — files, shell, netwo
 
 Most developers add tools without a clear accounting of what permissions they're actually granting. The agent docs tell you what the tool is *for*. They don't tell you what it *can do*.
 
-`agent-scan` is the accounting.
+`reachscan` is the accounting.
 
 It analyzes Python and TypeScript/JavaScript code and reports the actual capabilities present: what the code can read, write, execute, send, and access. Not what the README says. What the code does.
 
@@ -39,7 +39,7 @@ Cross-capability risks are also flagged — READ + SEND detected together raises
 
 Knowing a capability exists in a codebase is useful. Knowing whether the LLM can actually trigger it is what matters.
 
-`agent-scan` detects the LLM-facing entry points in your codebase, builds an intra-project call graph, and traces which capabilities are reachable from those entry points. Every finding is tagged with one of five states:
+`reachscan` detects the LLM-facing entry points in your codebase, builds an intra-project call graph, and traces which capabilities are reachable from those entry points. Every finding is tagged with one of five states:
 
 | State | Meaning |
 |---|---|
@@ -53,7 +53,7 @@ The call graph follows up to 8 hops from each entry point. Call paths are shown 
 
 ### Entry point detection — Python
 
-`agent-scan` recognises LLM-callable functions across all major Python agent frameworks:
+`reachscan` recognises LLM-callable functions across all major Python agent frameworks:
 
 | Framework | Detection pattern |
 |---|---|
@@ -71,7 +71,7 @@ Python entry points feed into the reachability pass — the call graph is traced
 
 ### Entry point detection — TypeScript and JavaScript
 
-`agent-scan` scans `.ts`, `.js`, `.mts`, `.mjs`, `.cts`, and `.cjs` files using regex-based pattern matching. No Node.js runtime is required.
+`reachscan` scans `.ts`, `.js`, `.mts`, `.mjs`, `.cts`, and `.cjs` files using regex-based pattern matching. No Node.js runtime is required.
 
 | Pattern | What it detects | Confidence |
 |---|---|---|
@@ -142,7 +142,7 @@ You get file paths and line numbers. Not just "this repo uses subprocess" — yo
 
 **Security and platform teams** — you're deploying agents your developers wrote, or agents that use third-party frameworks. Before they hit production, run a scan. Get a fast, defensible answer to "what can this thing actually do?"
 
-**Anyone integrating third-party tools** — tools, plugins, and MCP servers come with capabilities attached. Scan them *before* wiring them into your agent. `agent-scan https://github.com/some-org/some-tool` takes seconds and requires nothing installed on that repo.
+**Anyone integrating third-party tools** — tools, plugins, and MCP servers come with capabilities attached. Scan them *before* wiring them into your agent. `reachscan https://github.com/some-org/some-tool` takes seconds and requires nothing installed on that repo.
 
 **MCP server authors** — show your users exactly what your server can and cannot do. A clean scan result is a trust signal.
 
@@ -191,20 +191,20 @@ Low noise by design. When it fires, it's real.
 ### Option 1 — Recommended (install as a CLI tool)
 
 ```bash
-pipx install git+https://github.com/vinmay/agent-scan.git
+pipx install git+https://github.com/vinmay/reachscan.git
 ```
 
 Then run:
 
 ```bash
-agent-scan .
+reachscan .
 ```
 
 ### Option 2 — Install from source (development)
 
 ```bash
-git clone https://github.com/vinmay/agent-scan.git
-cd agent-scan
+git clone https://github.com/vinmay/reachscan.git
+cd reachscan
 
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
@@ -215,7 +215,7 @@ pip install -e .[dev]
 ### Option 3 — Run without installing
 
 ```bash
-python -m agent_scan.cli examples/demo_agent
+python -m reachscan.cli examples/demo_agent
 ```
 
 ---
@@ -230,19 +230,19 @@ python -m agent_scan.cli examples/demo_agent
 ## Usage
 
 ```
-agent-scan [target] [--json] [--severity {high,medium,none}]
+reachscan [target] [--json] [--severity {high,medium,none}]
 ```
 
 `target` accepts:
 
 | Input | Example |
 |---|---|
-| Local path | `agent-scan .` |
-| Local path, JSON output | `agent-scan ./my_agent --json` |
-| GitHub repository URL | `agent-scan https://github.com/org/repo` |
-| MCP HTTP endpoint | `agent-scan mcp+https://mcp.example.com` |
-| PyPI package (latest) | `agent-scan pypi:requests` |
-| PyPI package (pinned) | `agent-scan pypi:requests==2.31.0` |
+| Local path | `reachscan .` |
+| Local path, JSON output | `reachscan ./my_agent --json` |
+| GitHub repository URL | `reachscan https://github.com/org/repo` |
+| MCP HTTP endpoint | `reachscan mcp+https://mcp.example.com` |
+| PyPI package (latest) | `reachscan pypi:requests` |
+| PyPI package (pinned) | `reachscan pypi:requests==2.31.0` |
 
 The GitHub URL path does a shallow clone — you don't need the repo checked out locally.
 
@@ -272,25 +272,25 @@ Controls when the CLI exits 1:
 name: Agent Capability Audit
 on: [push, pull_request]
 jobs:
-  agent-scan:
+  reachscan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: pipx install agent-scan
+      - run: pipx install reachscan
       - name: Run capability audit
-        run: agent-scan . --json > agent-scan-report.json
+        run: reachscan . --json > reachscan-report.json
         # Exits 1 if HIGH reachable capabilities found
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: agent-scan-report
-          path: agent-scan-report.json
+          name: reachscan-report
+          path: reachscan-report.json
 ```
 
 To audit without blocking the pipeline (report only):
 
 ```yaml
-- run: agent-scan . --json --severity none > agent-scan-report.json
+- run: reachscan . --json --severity none > reachscan-report.json
 ```
 
 ---

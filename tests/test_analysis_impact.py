@@ -1,4 +1,4 @@
-from agent_scan.analysis.impact import analyze_combined_capabilities
+from reachscan.analysis.impact import analyze_combined_capabilities
 
 
 def test_combined_secret_leak_rule():

@@ -1,9 +1,9 @@
 import argparse
 import json
 import sys
-from agent_scan.scanner import scan_target
-from agent_scan.reporters.text_reporter import human_report
-from agent_scan.reporters.json_reporter import json_report
+from reachscan.scanner import scan_target
+from reachscan.reporters.text_reporter import human_report
+from reachscan.reporters.json_reporter import json_report
 
 _SEVERITY_LEVELS = {"high": {"high"}, "medium": {"high", "medium"}}
 
@@ -43,7 +43,7 @@ def _compute_exit_code(results: dict, severity: str) -> int:
 
 def build_parser():
     p = argparse.ArgumentParser(
-        prog="agent-scan",
+        prog="reachscan",
         description="Tells you what your AI agent can access, change, and send — before it does."
     )
     p.add_argument(

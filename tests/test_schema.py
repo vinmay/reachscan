@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from agent_scan.schema import normalize_finding, build_v1_report
+from reachscan.schema import normalize_finding, build_v1_report
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ def _make_results(**kwargs):
 def test_build_v1_report_required_top_level_keys():
     report = build_v1_report(_make_results())
     required = {
-        "schema_version", "generated_at", "agent_scan_version",
+        "schema_version", "generated_at", "reachscan_version",
         "target", "source_type", "resolved_version",
         "num_files_scanned", "num_ts_files_scanned", "entry_points_detected",
         "py_entry_points", "ts_entry_points",

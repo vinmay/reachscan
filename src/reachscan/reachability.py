@@ -42,8 +42,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from agent_scan.call_graph import CallGraph, FunctionNode, LinenoIndex, MODULE_LEVEL
-from agent_scan.py_entry_points import PATTERN_CLASS_ATTRIBUTE
+from reachscan.call_graph import CallGraph, FunctionNode, LinenoIndex, MODULE_LEVEL
+from reachscan.py_entry_points import PATTERN_CLASS_ATTRIBUTE
 
 # ---------------------------------------------------------------------------
 # Reachability state constants

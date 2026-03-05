@@ -186,7 +186,7 @@ def human_report(results: Dict[str, Any]) -> str:
             )
             lines.append(f"No Python or TypeScript files were found for analysis.")
             lines.append(f"Detected: {lang_summary}")
-            lines.append("agent-scan currently supports Python (full analysis) and TypeScript (entry points).")
+            lines.append("reachscan currently supports Python (full analysis) and TypeScript (entry points).")
         else:
             lines.append("No Python or TypeScript files were found for analysis.")
         lines.append("")

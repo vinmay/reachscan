@@ -1,4 +1,4 @@
-from agent_scan.detectors.shell_exec import scan_file
+from reachscan.detectors.shell_exec import scan_file
 
 def test_detect_subprocess():
     src = 'import subprocess\nsubprocess.run(["ls"])'

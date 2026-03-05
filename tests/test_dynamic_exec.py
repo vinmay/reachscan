@@ -1,4 +1,4 @@
-from agent_scan.detectors.dynamic_exec import scan_file
+from reachscan.detectors.dynamic_exec import scan_file
 
 def test_eval_exec_compile():
     src = 'x = eval("1+1")\nexec("print(123)")\ncompile("1+1", "<str>", "eval")'

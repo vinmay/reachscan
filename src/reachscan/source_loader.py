@@ -213,7 +213,7 @@ def _mcp_initialize(endpoint: str) -> None:
         "params": {
             "protocolVersion": "2024-11-05",
             "capabilities": {},
-            "clientInfo": {"name": "agent-scan", "version": "0.1.0"},
+            "clientInfo": {"name": "reachscan", "version": "0.1.0"},
         },
     }
     try:
@@ -350,7 +350,7 @@ def resolve_target(
         yield ResolvedTarget(local_path=p, display_target=str(p), source_type="local")
         return
 
-    tmp_root = Path(tempfile.mkdtemp(prefix="agent_scan_remote_"))
+    tmp_root = Path(tempfile.mkdtemp(prefix="reachscan_remote_"))
     try:
         if _is_github_url(target_str):
             work = tmp_root / "github_repo"

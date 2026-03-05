@@ -1,9 +1,9 @@
 """
-TypeScript/JavaScript entry point detector for agent-scan.
+TypeScript/JavaScript entry point detector for reachscan.
 
 Detects functions exposed to LLMs in .ts and .js source files using
 regex-based pattern matching. Does NOT perform full TypeScript AST analysis —
-agent-scan intentionally avoids requiring a Node.js runtime dependency.
+reachscan intentionally avoids requiring a Node.js runtime dependency.
 
 Coverage (v1):
   mcp_tool            — server.tool("name", schema, handler)       [MCP SDK]

@@ -2,7 +2,7 @@
 
 from typing import Any, Dict
 
-from agent_scan.reachability import REACHABILITY_FIELDS
+from reachscan.reachability import REACHABILITY_FIELDS
 
 CAPABILITY_DETAILS: Dict[str, Dict[str, str]] = {
     "EXECUTE": {
