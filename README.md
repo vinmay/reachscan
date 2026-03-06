@@ -191,7 +191,13 @@ Low noise by design. When it fires, it's real.
 ### Option 1 — Recommended (install as a CLI tool)
 
 ```bash
-pipx install git+https://github.com/vinmay/reachscan.git
+pipx install reachscan
+```
+
+Or with pip:
+
+```bash
+pip install reachscan
 ```
 
 Then run:
