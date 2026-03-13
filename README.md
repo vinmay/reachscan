@@ -236,7 +236,7 @@ python -m reachscan.cli examples/demo_agent
 ## Usage
 
 ```
-reachscan [target] [--json] [--severity {high,medium,none}]
+reachscan [target] [--json] [--severity {high,medium,none}] [--explain]
 ```
 
 `target` accepts:
@@ -269,6 +269,27 @@ Controls when the CLI exits 1:
 | `high` *(default)* | reachable finding with `risk_level == "high"` |
 | `medium` | reachable finding with `risk_level in ("high", "medium")` |
 | `none` | never — always exits 0 |
+
+### `--explain` flag
+
+Expands the call chain for every reachable finding, showing each hop with its source file. Use this when you want to understand exactly how the LLM reaches a capability — not just that it can, but through which functions.
+
+Without `--explain`:
+```
+  [HIGH] DYNAMIC via exec() (dynamic_exec @ addon.py:431)
+    path: execute_blender_code → … → execute_code
+```
+
+With `--explain`:
+```
+  [HIGH] DYNAMIC via exec() (dynamic_exec @ addon.py:431)
+    call chain:
+      execute_blender_code @ server.py
+      → send_command @ server.py
+      → execute_code @ addon.py
+```
+
+Only applies to the text report. Has no effect with `--json`.
 
 ---
 

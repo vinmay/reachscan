@@ -1,9 +1,18 @@
 from typing import Dict, Any, List
 
 
-def _format_path(path: list, truncated: bool) -> str:
+def _format_path(path: list, truncated: bool, explain: bool = False) -> str:
     if not path:
         return ""
+    if explain:
+        parts = []
+        for node in path:
+            if "::" in node:
+                file_part, func_part = node.split("::", 1)
+                parts.append(f"{func_part} @ {file_part}")
+            else:
+                parts.append(node)
+        return "\n      → ".join(parts)
     if truncated and len(path) > 2:
         nodes = [path[0], "…", path[-1]]
     else:
@@ -11,7 +20,7 @@ def _format_path(path: list, truncated: bool) -> str:
     return " → ".join(nodes)
 
 
-def _render_finding(item: dict, lines: List[str], show_path: bool, show_state_prefix: bool) -> None:
+def _render_finding(item: dict, lines: List[str], show_path: bool, show_state_prefix: bool, explain: bool = False) -> None:
     finding = item.get("finding", {})
     detector = item.get("detector", "unknown")
     file_path = finding.get("file", "unknown")
@@ -37,9 +46,15 @@ def _render_finding(item: dict, lines: List[str], show_path: bool, show_state_pr
     if show_path and state == "reachable":
         path = finding.get("reachability_path") or []
         truncated = finding.get("reachability_path_truncated", False)
-        formatted = _format_path(path, truncated)
-        if formatted:
-            lines.append(f"    path: {formatted}")
+        if explain:
+            formatted = _format_path(path, truncated, explain=True)
+            if formatted:
+                lines.append(f"    call chain:")
+                lines.append(f"      {formatted}")
+        else:
+            formatted = _format_path(path, truncated)
+            if formatted:
+                lines.append(f"    path: {formatted}")
     elif state == "module_level":
         lines.append("    reachability: Executes on import — runs whenever this module loads")
 
@@ -47,7 +62,7 @@ def _render_finding(item: dict, lines: List[str], show_path: bool, show_state_pr
     lines.append(f"    impact: {finding.get('impact', '')}")
 
 
-def human_report(results: Dict[str, Any]) -> str:
+def human_report(results: Dict[str, Any], explain: bool = False) -> str:
     lines = []
     lines.append("Agent Capability Report")
     lines.append("=" * 23)
@@ -117,7 +132,7 @@ def human_report(results: Dict[str, Any]) -> str:
         lines += ["Reachable Findings  —  LLM can trigger these directly", "-" * 52]
         if reachable:
             for item in reachable:
-                _render_finding(item, lines, show_path=True, show_state_prefix=False)
+                _render_finding(item, lines, show_path=True, show_state_prefix=False, explain=explain)
         else:
             lines.append("  No findings reachable from the detected entry points.")
         lines.append("")
