@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reachscan"
-version = "0.1.0"
+version = "0.1.1"
 description = "Reachability-based capability scanner for AI agent and MCP server codebases."
 readme = "README.md"
 authors = [{name = "Vinmay Nair", email = "vinmay.nair@gmail.com"}]
@@ -16,6 +16,7 @@ dev = ["pytest", "ruff", "pipx", "click"]
 
 [project.urls]
 "Homepage" = "https://github.com/vinmay/reachscan"
+"Website" = "https://reachscan.dev"
 
 [tool.setuptools.packages.find]
 where = ["src"]

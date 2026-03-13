@@ -60,6 +60,11 @@ def build_parser():
         default="high",
         help="Exit 1 when reachable findings meet this risk threshold (default: high)",
     )
+    p.add_argument(
+        "--explain",
+        action="store_true",
+        help="Show full call chain traces with file:line for each reachable finding",
+    )
     return p
 
 
@@ -76,7 +81,7 @@ def main(argv=None):
     if args.as_json:
         print(json_report(results))
     else:
-        print(human_report(results))
+        print(human_report(results, explain=args.explain))
 
     sys.exit(_compute_exit_code(results, args.severity))
 
