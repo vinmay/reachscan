@@ -317,7 +317,7 @@ async def fetch(url: str) -> str:
     graph, lineno, imp_map = build_call_graph([f], tmp_path)
     fstr = str(f.resolve())
     assert (fstr, "fetch") in graph
-    assert any(v == "fetch" for v in lineno[fstr].values())
+    assert any(v[0] == "fetch" for v in lineno[fstr].values())
 
 
 def test_lineno_index_function_start_lines(tmp_path):
@@ -332,8 +332,8 @@ def beta():
     graph, lineno, imp_map = build_call_graph([f], tmp_path)
     fstr = str(f.resolve())
     idx = lineno[fstr]
-    assert idx[1] == "alpha"
-    assert idx[4] == "beta"
+    assert idx[1][0] == "alpha"
+    assert idx[4][0] == "beta"
 
 
 def test_lineno_index_module_sentinel(tmp_path):
@@ -342,7 +342,7 @@ def test_lineno_index_module_sentinel(tmp_path):
     graph, lineno, imp_map = build_call_graph([f], tmp_path)
     fstr = str(f.resolve())
     assert 0 in lineno[fstr]
-    assert lineno[fstr][0] == MODULE_LEVEL
+    assert lineno[fstr][0][0] == MODULE_LEVEL
 
 
 def test_lineno_index_class_method(tmp_path):
@@ -354,7 +354,7 @@ class Worker:
 """)
     graph, lineno, imp_map = build_call_graph([f], tmp_path)
     fstr = str(f.resolve())
-    assert any(v == "Worker.run" for v in lineno[fstr].values())
+    assert any(v[0] == "Worker.run" for v in lineno[fstr].values())
 
 
 def test_nested_function_in_lineno_not_in_exportable(tmp_path):
@@ -368,7 +368,7 @@ def outer():
     graph, lineno, imp_map = build_call_graph([f], tmp_path)
     fstr = str(f.resolve())
     # inner appears in lineno index
-    assert "inner" in lineno[fstr].values()
+    assert any(v[0] == "inner" for v in lineno[fstr].values())
     # inner is not in project_functions → outer→inner edge is not built
     # (inner cannot be imported; it's a nested closure)
     outer_callees = graph.get((fstr, "outer"), set())

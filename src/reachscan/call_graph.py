@@ -7,8 +7,10 @@ reachability analyser, and provides the construction logic (build_call_graph).
 Type contracts (used by Step 4 reachability analysis):
   FunctionNode   — (abs_file_path, qualified_name): canonical function identifier
   CallGraph      — adjacency map: FunctionNode → set of called FunctionNodes
-  LinenoIndex    — per-file {start_lineno → qualified_name}; includes 0 → "<module>"
-                   sentinel so all findings have a containing "function" context
+  LinenoIndex    — per-file {start_lineno → (qualified_name, end_lineno)}; includes
+                   0 → ("<module>", None) sentinel so all findings have a containing
+                   "function" context. end_lineno enables scope-aware nested function
+                   resolution.
   ImportMap      — per-file {local_name → source_file} for project-local imports
   ReexportMap    — project-wide {exported_name → source_file} from __init__.py
 
@@ -78,9 +80,9 @@ FunctionNode = Tuple[str, str]
 # Adjacency map: each FunctionNode → set of FunctionNodes it calls in-project.
 CallGraph = Dict[FunctionNode, Set[FunctionNode]]
 
-# Per-file map: start_lineno → qualified function name.
-# Sentinel 0 → "<module>" is always present to cover module-level code.
-LinenoIndex = Dict[str, Dict[int, str]]
+# Per-file map: start_lineno → (qualified function name, end_lineno or None).
+# Sentinel 0 → ("<module>", None) is always present to cover module-level code.
+LinenoIndex = Dict[str, Dict[int, Tuple[str, Optional[int]]]]
 
 # Per-file map: local import name → resolved abs source file path.
 ImportMap = Dict[str, Dict[str, str]]
@@ -114,8 +116,8 @@ def build_call_graph(
         graph:   CallGraph — FunctionNode → set of callee FunctionNodes.
                  Every function definition in every file has at least an empty
                  set entry so callers can iterate nodes safely.
-        lineno:  LinenoIndex — per-file {start_lineno → qualified_name}.
-                 Includes nested functions and the 0 → "<module>" sentinel.
+        lineno:  LinenoIndex — per-file {start_lineno → (qualified_name, end_lineno)}.
+                 Includes nested functions and the 0 → ("<module>", None) sentinel.
         imp_map: ImportMap — per-file {local_name → abs_source_file} for
                  project-local imports resolved at the top-level of each file.
     """
@@ -362,7 +364,7 @@ class _FileVisitor(ast.NodeVisitor):
 
     Outputs:
         graph        — {FunctionNode: set(FunctionNode)} — edges from this file
-        lineno_index — {start_lineno: qualified_name}; sentinel 0 → "<module>"
+        lineno_index — {start_lineno: (qualified_name, end_lineno)}; sentinel 0 → ("<module>", None)
     """
 
     def __init__(
@@ -381,7 +383,7 @@ class _FileVisitor(ast.NodeVisitor):
 
         self.graph: Dict[FunctionNode, Set[FunctionNode]] = {}
         # Sentinel ensures every file has a MODULE_LEVEL entry for bisect safety
-        self.lineno_index: Dict[int, str] = {0: MODULE_LEVEL}
+        self.lineno_index: Dict[int, Tuple[str, Optional[int]]] = {0: (MODULE_LEVEL, None)}
 
     # -- Class and function boundaries ---------------------------------------
 
@@ -405,7 +407,7 @@ class _FileVisitor(ast.NodeVisitor):
         else:
             qual = node.name
 
-        self.lineno_index[node.lineno] = qual
+        self.lineno_index[node.lineno] = (qual, getattr(node, "end_lineno", None))
         fn: FunctionNode = (self._file, qual)
         self.graph.setdefault(fn, set())
 

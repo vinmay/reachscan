@@ -147,7 +147,7 @@ def _find_class_run_method(class_lineno: int, file_map: Dict[int, str]) -> Optio
     """
     _RUN_SUFFIXES = ("._run", "._arun", ".__call__")
     for lineno in sorted(k for k in file_map if k > class_lineno):
-        qual = file_map[lineno]
+        qual, _end = file_map[lineno]
         if qual.endswith(_RUN_SUFFIXES):
             return qual
         # A bare name (no dot) means a new top-level function — we've exited the class
@@ -161,8 +161,13 @@ def _containing_function(
 ) -> Optional[Tuple[str, str]]:
     """Return (canonical_file, qual_name) for the function enclosing lineno.
 
-    Uses bisect on sorted lineno keys. The sentinel 0 → MODULE_LEVEL is always
-    present, so the result is always defined when the file exists in the index.
+    Uses bisect on sorted lineno keys, then walks backward to handle nested
+    functions correctly. A nested function (e.g. a local ``def`` inside an
+    outer function) has a limited span; once its ``end_lineno`` is passed,
+    subsequent lines belong to the enclosing function, not the nested one.
+
+    The sentinel 0 → (MODULE_LEVEL, None) is always present, so the result is
+    always defined when the file exists in the index.
     Returns None if file is not in lineno_index (parse failed for that file).
     """
     canonical = _canonical_file(file, lineno_index)
@@ -173,8 +178,17 @@ def _containing_function(
     idx = bisect.bisect_right(sorted_keys, lineno) - 1
     if idx < 0:
         return None
-    qual = file_map[sorted_keys[idx]]
-    return (canonical, qual)
+
+    # Walk backward from the bisect hit: the first function whose end_lineno
+    # covers our target line (or has no end_lineno, like MODULE_LEVEL) is the
+    # true enclosing scope.
+    while idx >= 0:
+        qual, end_lineno = file_map[sorted_keys[idx]]
+        if end_lineno is None or lineno <= end_lineno:
+            return (canonical, qual)
+        idx -= 1
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +279,8 @@ def analyze_reachability(
         canonical = _canonical_file(ep.file, lineno_index)
         if canonical is None:
             continue
-        py_name = lineno_index[canonical].get(ep.lineno)
+        entry = lineno_index[canonical].get(ep.lineno)
+        py_name = entry[0] if entry is not None else None
         if (py_name is None or py_name == MODULE_LEVEL) and ep.pattern_type == PATTERN_CLASS_ATTRIBUTE:
             # Class definition lines are not in lineno_index — fall back to the
             # _run / _arun / __call__ method defined in the class body.

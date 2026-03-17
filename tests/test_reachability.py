@@ -63,7 +63,7 @@ def test_no_entry_points():
         findings,
         py_entry_points=[],
         graph={},
-        lineno_index={"/f.py": {0: MODULE_LEVEL, 5: "some_fn"}},
+        lineno_index={"/f.py": {0: (MODULE_LEVEL, None), 5: ("some_fn", None)}},
     )
     assert findings[0]["reachability"] == NO_ENTRY_POINTS
     assert findings[0]["entry_point_name"] is None
@@ -77,7 +77,7 @@ def test_no_entry_points():
 def test_finding_directly_in_entry_point():
     FILE = "/project/tools.py"
     ep = make_ep("my_tool", FILE, 10)
-    lineno_index = {FILE: {0: MODULE_LEVEL, 10: "my_tool"}}
+    lineno_index = {FILE: {0: (MODULE_LEVEL, None), 10: ("my_tool", 30)}}
     graph = {(FILE, "my_tool"): set()}
     findings = [make_finding(FILE, 12)]
 
@@ -99,8 +99,8 @@ def test_one_hop_reachable():
     HELPER = "/project/helper.py"
     ep = make_ep("my_tool", TOOLS, 10)
     lineno_index = {
-        TOOLS: {0: MODULE_LEVEL, 10: "my_tool"},
-        HELPER: {0: MODULE_LEVEL, 5: "helper_fn"},
+        TOOLS: {0: (MODULE_LEVEL, None), 10: ("my_tool", 30)},
+        HELPER: {0: (MODULE_LEVEL, None), 5: ("helper_fn", 20)},
     }
     graph = {
         (TOOLS, "my_tool"): {(HELPER, "helper_fn")},
@@ -122,7 +122,7 @@ def test_one_hop_reachable():
 def test_unreachable():
     FILE = "/project/tools.py"
     ep = make_ep("my_tool", FILE, 10)
-    lineno_index = {FILE: {0: MODULE_LEVEL, 10: "my_tool", 20: "other_fn"}}
+    lineno_index = {FILE: {0: (MODULE_LEVEL, None), 10: ("my_tool", 19), 20: ("other_fn", 30)}}
     graph = {
         (FILE, "my_tool"): set(),
         (FILE, "other_fn"): set(),
@@ -144,10 +144,12 @@ def test_depth_limit_stops_bfs():
     # fn{N} is one hop beyond the BFS depth limit — not reached
     N = TRAVERSAL_DEPTH + 1
 
-    lineno_index = {FILE: {0: MODULE_LEVEL}}
+    lineno_index = {FILE: {0: (MODULE_LEVEL, None)}}
     graph = {}
     for i in range(N + 1):
-        lineno_index[FILE][i * 10 + 10] = f"fn{i}"
+        start = i * 10 + 10
+        end = start + 9
+        lineno_index[FILE][start] = (f"fn{i}", end)
         graph[(FILE, f"fn{i}")] = {(FILE, f"fn{i + 1}")} if i < N else set()
 
     ep = make_ep("fn0", FILE, 10)
@@ -169,10 +171,12 @@ def test_path_not_truncated():
     # Path to fn{N} has DISPLAY_DEPTH nodes → not truncated
     N = DISPLAY_DEPTH - 1
 
-    lineno_index = {FILE: {0: MODULE_LEVEL}}
+    lineno_index = {FILE: {0: (MODULE_LEVEL, None)}}
     graph = {}
     for i in range(N + 1):
-        lineno_index[FILE][i * 10 + 10] = f"fn{i}"
+        start = i * 10 + 10
+        end = start + 9
+        lineno_index[FILE][start] = (f"fn{i}", end)
         graph[(FILE, f"fn{i}")] = {(FILE, f"fn{i + 1}")} if i < N else set()
 
     ep = make_ep("fn0", FILE, 10)
@@ -194,10 +198,12 @@ def test_path_truncated():
     FILE = "/project/tools.py"
     N = DISPLAY_DEPTH  # path to fn{N} has DISPLAY_DEPTH + 1 nodes → truncated
 
-    lineno_index = {FILE: {0: MODULE_LEVEL}}
+    lineno_index = {FILE: {0: (MODULE_LEVEL, None)}}
     graph = {}
     for i in range(N + 1):
-        lineno_index[FILE][i * 10 + 10] = f"fn{i}"
+        start = i * 10 + 10
+        end = start + 9
+        lineno_index[FILE][start] = (f"fn{i}", end)
         graph[(FILE, f"fn{i}")] = {(FILE, f"fn{i + 1}")} if i < N else set()
 
     ep = make_ep("fn0", FILE, 10)
@@ -218,7 +224,7 @@ def test_path_truncated():
 def test_module_level_unknown():
     FILE = "/project/tools.py"
     ep = make_ep("my_tool", FILE, 10)
-    lineno_index = {FILE: {0: MODULE_LEVEL, 10: "my_tool"}}
+    lineno_index = {FILE: {0: (MODULE_LEVEL, None), 10: ("my_tool", 30)}}
     graph = {(FILE, "my_tool"): set()}
     # lineno 5 is before any function → hits the 0 → MODULE_LEVEL sentinel
     findings = [make_finding(FILE, 5)]
@@ -236,7 +242,7 @@ def test_file_not_in_lineno_index():
     FILE = "/project/tools.py"
     OTHER = "/project/other.py"
     ep = make_ep("my_tool", FILE, 10)
-    lineno_index = {FILE: {0: MODULE_LEVEL, 10: "my_tool"}}
+    lineno_index = {FILE: {0: (MODULE_LEVEL, None), 10: ("my_tool", 30)}}
     graph = {(FILE, "my_tool"): set()}
     findings = [make_finding(OTHER, 5)]
 
@@ -253,7 +259,7 @@ def test_file_not_in_lineno_index():
 def test_reachable_findings_on_entry_point():
     FILE = "/project/tools.py"
     ep = make_ep("my_tool", FILE, 10)
-    lineno_index = {FILE: {0: MODULE_LEVEL, 10: "my_tool"}}
+    lineno_index = {FILE: {0: (MODULE_LEVEL, None), 10: ("my_tool", 30)}}
     graph = {(FILE, "my_tool"): set()}
     findings = [make_finding(FILE, 12, finding_id="abc123")]
 
@@ -270,7 +276,7 @@ def test_reachable_findings_on_entry_point():
 def test_cycle_no_infinite_loop():
     FILE = "/project/tools.py"
     ep = make_ep("fn_a", FILE, 10)
-    lineno_index = {FILE: {0: MODULE_LEVEL, 10: "fn_a", 20: "fn_b"}}
+    lineno_index = {FILE: {0: (MODULE_LEVEL, None), 10: ("fn_a", 19), 20: ("fn_b", 30)}}
     graph = {
         (FILE, "fn_a"): {(FILE, "fn_b")},
         (FILE, "fn_b"): {(FILE, "fn_a")},  # cycle
@@ -294,7 +300,7 @@ def test_multiple_entry_points_shortest_path_wins():
     ep2 = make_ep("ep2_tool", FILE, 20)
 
     lineno_index = {
-        FILE: {0: MODULE_LEVEL, 10: "ep1_fn", 20: "ep2_fn", 30: "fn_b", 40: "fn_c"}
+        FILE: {0: (MODULE_LEVEL, None), 10: ("ep1_fn", 19), 20: ("ep2_fn", 29), 30: ("fn_b", 39), 40: ("fn_c", 50)}
     }
     graph = {
         (FILE, "ep1_fn"): {(FILE, "fn_b")},
@@ -324,7 +330,7 @@ def test_multiple_entry_points_deterministic_tiebreaker():
     ep_a = make_ep("a_tool", FILE, 20)
 
     lineno_index = {
-        FILE: {0: MODULE_LEVEL, 10: "z_fn", 20: "a_fn", 30: "fn_c"}
+        FILE: {0: (MODULE_LEVEL, None), 10: ("z_fn", 19), 20: ("a_fn", 29), 30: ("fn_c", 40)}
     }
     graph = {
         (FILE, "z_fn"): {(FILE, "fn_c")},
@@ -346,7 +352,7 @@ def test_multiple_entry_points_deterministic_tiebreaker():
 
 def test_entry_point_lineno_lookup():
     FILE = "/project/tools.py"
-    lineno_index = {FILE: {0: MODULE_LEVEL, 15: "actual_fn"}}
+    lineno_index = {FILE: {0: (MODULE_LEVEL, None), 15: ("actual_fn", 30)}}
     graph = {(FILE, "actual_fn"): set()}
     # ep.lineno=15 matches "actual_fn" in lineno_index
     ep = make_ep("tool_name", FILE, 15)
@@ -385,10 +391,12 @@ def test_nodes_skipped_by_depth_warning():
     FILE = "/project/tools.py"
     N = TRAVERSAL_DEPTH + 1  # chain one hop beyond the limit
 
-    lineno_index = {FILE: {0: MODULE_LEVEL}}
+    lineno_index = {FILE: {0: (MODULE_LEVEL, None)}}
     graph = {}
     for i in range(N + 1):
-        lineno_index[FILE][i * 10 + 10] = f"fn{i}"
+        start = i * 10 + 10
+        end = start + 9
+        lineno_index[FILE][start] = (f"fn{i}", end)
         graph[(FILE, f"fn{i}")] = {(FILE, f"fn{i + 1}")} if i < N else set()
 
     ep = make_ep("fn0", FILE, 10)
@@ -400,6 +408,7 @@ def test_nodes_skipped_by_depth_warning():
 
 # ---------------------------------------------------------------------------
 # Test 17 — finding inside nested function (not in graph) → UNKNOWN
+#           finding AFTER nested function (in outer_fn body) → REACHABLE
 # ---------------------------------------------------------------------------
 
 def test_nested_function_finding_gets_unknown():
@@ -407,18 +416,22 @@ def test_nested_function_finding_gets_unknown():
     ep = make_ep("outer_fn", FILE, 10)
 
     # lineno_index includes both outer_fn and the nested function "inner"
-    lineno_index = {FILE: {0: MODULE_LEVEL, 10: "outer_fn", 12: "inner"}}
+    # inner: lines 12-13, outer_fn: lines 10-20
+    lineno_index = {FILE: {0: (MODULE_LEVEL, None), 10: ("outer_fn", 20), 12: ("inner", 13)}}
 
     # graph only has outer_fn — "inner" is a nested function not in project_functions
     graph = {(FILE, "outer_fn"): set()}
 
-    # finding at lineno 14 → bisect resolves to "inner" (lineno 12)
-    findings = [make_finding(FILE, 14)]
+    # Finding at lineno 13 → inside inner's body → inner not in graph → UNKNOWN
+    findings_inside_inner = [make_finding(FILE, 13, finding_id="in_inner")]
+    analyze_reachability(findings_inside_inner, [ep], graph, lineno_index)
+    assert findings_inside_inner[0]["reachability"] == UNKNOWN
 
-    analyze_reachability(findings, [ep], graph, lineno_index)
-
-    # "inner" not in graph → UNKNOWN (not UNREACHABLE)
-    assert findings[0]["reachability"] == UNKNOWN
+    # Finding at lineno 14 → past inner's end_lineno (13), walk back → outer_fn → REACHABLE
+    ep2 = make_ep("outer_fn", FILE, 10)
+    findings_after_inner = [make_finding(FILE, 14, finding_id="after_inner")]
+    analyze_reachability(findings_after_inner, [ep2], graph, lineno_index)
+    assert findings_after_inner[0]["reachability"] == REACHABLE
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +442,7 @@ def test_parse_failure_file_unknown():
     FILE = "/project/tools.py"
     FAILED = "/project/bad_syntax.py"
     ep = make_ep("my_tool", FILE, 10)
-    lineno_index = {FILE: {0: MODULE_LEVEL, 10: "my_tool"}}
+    lineno_index = {FILE: {0: (MODULE_LEVEL, None), 10: ("my_tool", 30)}}
     graph = {(FILE, "my_tool"): set()}
     findings = [make_finding(FAILED, 5)]
 
@@ -451,7 +464,7 @@ def test_class_based_entry_point_falls_back_to_run_method():
     #   line 15: def _run(self): ...      ← in lineno_index as "MyTool._run"
     #   line 18: finding (EXECUTE)
     lineno_index = {
-        FILE: {0: MODULE_LEVEL, 12: "MyTool.__init__", 15: "MyTool._run"}
+        FILE: {0: (MODULE_LEVEL, None), 12: ("MyTool.__init__", 14), 15: ("MyTool._run", 25)}
     }
     graph = {
         (FILE, "MyTool.__init__"): set(),
@@ -482,7 +495,7 @@ def test_class_based_entry_point_no_run_method_skipped():
     FILE = "/project/tools.py"
     # Class has no _run/_arun/__call__ — fallback returns None → entry point skipped
     lineno_index = {
-        FILE: {0: MODULE_LEVEL, 12: "MyTool.__init__", 20: "standalone_fn"}
+        FILE: {0: (MODULE_LEVEL, None), 12: ("MyTool.__init__", 18), 20: ("standalone_fn", 30)}
     }
     graph = {
         (FILE, "MyTool.__init__"): set(),
