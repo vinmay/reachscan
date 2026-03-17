@@ -12,6 +12,13 @@ from reachscan.py_entry_points import (
     FRAMEWORK_LANGCHAIN,
     FRAMEWORK_CREWAI,
     FRAMEWORK_PYDANTIC_AI,
+    FRAMEWORK_STRANDS,
+    FRAMEWORK_HAYSTACK,
+    FRAMEWORK_AGNO,
+    FRAMEWORK_METAGPT,
+    FRAMEWORK_MARVIN,
+    FRAMEWORK_AGENCY_SWARM,
+    FRAMEWORK_SMOLAGENTS,
     FRAMEWORK_UNKNOWN,
     PATTERN_DECORATOR,
     PATTERN_CLASS_ATTRIBUTE,
@@ -848,3 +855,244 @@ def test_resolve_framework_step7_fallback():
     fw, conf = _resolve_framework("totally_unknown_decorator", "some_obj", {})
     assert fw == FRAMEWORK_UNKNOWN
     assert conf == 0.60
+
+
+# ---------------------------------------------------------------------------
+# AWS Strands Agents — @tool decorator
+# ---------------------------------------------------------------------------
+
+def test_strands_tool_decorator():
+    content = '''\
+from strands import Agent, tool
+
+@tool
+def my_tool(param1: str) -> dict:
+    """Tool description."""
+    return {"result": param1}
+'''
+    results = detect_py_entry_points("tools.py", content)
+    assert len(results) == 1
+    assert results[0].name == "my_tool"
+    assert results[0].framework == FRAMEWORK_STRANDS
+    assert results[0].confidence == 0.95
+
+
+def test_strands_tool_from_strands_tools():
+    content = '''\
+from strands_tools import tool
+
+@tool
+def search(query: str) -> str:
+    """Search."""
+    return query
+'''
+    results = detect_py_entry_points("tools.py", content)
+    assert len(results) == 1
+    assert results[0].framework == FRAMEWORK_STRANDS
+    assert results[0].confidence == 0.95
+
+
+# ---------------------------------------------------------------------------
+# Haystack — @tool decorator
+# ---------------------------------------------------------------------------
+
+def test_haystack_tool_decorator():
+    content = '''\
+from haystack.tools import tool
+
+@tool
+def weather(city: str) -> str:
+    """Get weather for a city."""
+    return f"Sunny in {city}"
+'''
+    results = detect_py_entry_points("tools.py", content)
+    assert len(results) == 1
+    assert results[0].name == "weather"
+    assert results[0].framework == FRAMEWORK_HAYSTACK
+    assert results[0].confidence == 0.95
+
+
+# ---------------------------------------------------------------------------
+# Agno / Phidata — @tool decorator and Toolkit base class
+# ---------------------------------------------------------------------------
+
+def test_agno_tool_decorator():
+    content = '''\
+from agno.tools import tool
+
+@tool
+def search(query: str) -> str:
+    """Search the web."""
+    return "results"
+'''
+    results = detect_py_entry_points("tools.py", content)
+    assert len(results) == 1
+    assert results[0].name == "search"
+    assert results[0].framework == FRAMEWORK_AGNO
+    assert results[0].confidence == 0.95
+
+
+def test_phidata_tool_decorator():
+    """Phidata (old name for Agno) resolves to agno framework."""
+    content = '''\
+from phi.tools import tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate expression."""
+    return str(eval(expression))
+'''
+    results = detect_py_entry_points("tools.py", content)
+    assert len(results) == 1
+    assert results[0].framework == FRAMEWORK_AGNO
+    assert results[0].confidence == 0.95
+
+
+def test_agno_toolkit_base_class():
+    content = '''\
+from agno.tools import Toolkit
+
+class WebSearchToolkit(Toolkit):
+    name = "web_search"
+    description = "Search the web"
+
+    def _run(self, query: str) -> str:
+        return query
+'''
+    results = detect_py_entry_points("tools.py", content)
+    assert len(results) == 1
+    assert results[0].name == "web_search"
+    assert results[0].framework == FRAMEWORK_AGNO
+    assert results[0].pattern_type == PATTERN_CLASS_ATTRIBUTE
+    assert results[0].confidence == 0.95
+
+
+# ---------------------------------------------------------------------------
+# MetaGPT — @register_tool decorator
+# ---------------------------------------------------------------------------
+
+def test_metagpt_register_tool():
+    content = '''\
+from metagpt.tools.tool_registry import register_tool
+
+@register_tool(tags=["math"])
+class Calculator:
+    """A calculator tool."""
+    name = "calculator"
+
+    def add(self, a: int, b: int) -> int:
+        return a + b
+'''
+    results = detect_py_entry_points("tools.py", content)
+    assert len(results) == 1
+    assert results[0].name == "calculator"
+    assert results[0].framework == FRAMEWORK_METAGPT
+    assert results[0].confidence == 0.95
+
+
+def test_metagpt_register_tool_on_function():
+    content = '''\
+from metagpt.tools.tool_registry import register_tool
+
+@register_tool()
+def web_scraper(url: str) -> str:
+    """Scrape a web page."""
+    return ""
+'''
+    results = detect_py_entry_points("tools.py", content)
+    assert len(results) == 1
+    assert results[0].name == "web_scraper"
+    assert results[0].framework == FRAMEWORK_METAGPT
+
+
+# ---------------------------------------------------------------------------
+# Marvin — @marvin.fn and @ai_model decorators
+# ---------------------------------------------------------------------------
+
+def test_marvin_fn_decorator():
+    content = '''\
+import marvin
+
+@marvin.fn
+def sentiment(text: str) -> float:
+    """Return sentiment score from -1 to 1."""
+'''
+    results = detect_py_entry_points("tools.py", content)
+    assert len(results) == 1
+    assert results[0].name == "sentiment"
+    assert results[0].framework == FRAMEWORK_MARVIN
+    assert results[0].confidence == 0.95
+
+
+def test_marvin_ai_model_decorator():
+    content = '''\
+from marvin import ai_model
+
+@ai_model
+class Location:
+    city: str
+    state: str
+'''
+    results = detect_py_entry_points("tools.py", content)
+    assert len(results) == 1
+    assert results[0].name == "Location"  # class name used when no name attr
+    assert results[0].framework == FRAMEWORK_MARVIN
+    assert results[0].confidence == 0.95
+
+
+# ---------------------------------------------------------------------------
+# Agency Swarm — @function_tool and BaseTool
+# ---------------------------------------------------------------------------
+
+def test_agency_swarm_function_tool():
+    content = '''\
+from agency_swarm import function_tool
+
+@function_tool
+def my_tool(param: str) -> str:
+    """Tool description."""
+    return param
+'''
+    results = detect_py_entry_points("tools.py", content)
+    assert len(results) == 1
+    assert results[0].name == "my_tool"
+    assert results[0].framework == FRAMEWORK_AGENCY_SWARM
+    assert results[0].confidence == 0.95
+
+
+def test_agency_swarm_base_tool():
+    content = '''\
+from agency_swarm.tools import BaseTool
+
+class FileReader(BaseTool):
+    name = "file_reader"
+    description = "Reads files"
+
+    def _run(self, path: str) -> str:
+        return ""
+'''
+    results = detect_py_entry_points("tools.py", content)
+    assert len(results) == 1
+    assert results[0].name == "file_reader"
+    assert results[0].framework == FRAMEWORK_AGENCY_SWARM
+    assert results[0].confidence == 0.95
+
+
+# ---------------------------------------------------------------------------
+# smolagents — @tool decorator with module attribution
+# ---------------------------------------------------------------------------
+
+def test_smolagents_tool_decorator():
+    content = '''\
+from smolagents import tool
+
+@tool
+def web_search(query: str) -> str:
+    """Search the web."""
+    return query
+'''
+    results = detect_py_entry_points("tools.py", content)
+    assert len(results) == 1
+    assert results[0].name == "web_search"
+    assert results[0].framework == FRAMEWORK_SMOLAGENTS
+    assert results[0].confidence == 0.95
