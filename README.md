@@ -1,5 +1,10 @@
 # reachscan
 
+[![PyPI version](https://img.shields.io/pypi/v/reachscan)](https://pypi.org/project/reachscan/)
+[![CI](https://github.com/vinmay/reachscan/actions/workflows/ci.yml/badge.svg)](https://github.com/vinmay/reachscan/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
+
 > Static capability analysis for Python and TypeScript/JavaScript AI code.
 > Know what it can do before it does it.
 
