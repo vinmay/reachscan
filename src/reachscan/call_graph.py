@@ -224,6 +224,7 @@ def _resolve_module_to_file(
     root: Path,
     current_file: Path,
     level: int = 0,
+    _pkg_dir_cache: Dict[str, List[Path]] = {},
 ) -> Optional[str]:
     """
     Resolve a module specifier to an absolute .py file path within root.
@@ -233,6 +234,8 @@ def _resolve_module_to_file(
     level=2  relative: "from .. import foo" (parent package)
 
     Tries candidate.py first, then candidate/__init__.py.
+    For absolute imports, also searches subdirectories (src/, monorepo
+    packages, etc.) to handle projects where packages live below root.
     Returns None if the path does not exist or falls outside root.
     """
     if not module_str:
@@ -256,6 +259,31 @@ def _resolve_module_to_file(
                 return str(resolved)
             except ValueError:
                 pass
+
+    # Fallback for absolute imports: search subdirectories for the top-level
+    # package.  This handles src/ layouts and monorepo subdirectories where
+    # packages are not directly under root (e.g. backtester/kis_mcp/).
+    if level == 0:
+        top_pkg = module_str.split(".")[0]
+        cache_key = str(root)
+        if cache_key not in _pkg_dir_cache:
+            # Build a one-time cache of all package directories (dirs with __init__.py)
+            _pkg_dir_cache[cache_key] = [
+                p.parent for p in root.rglob("__init__.py")
+                if p.parent.parent != root  # skip packages already at root level
+            ]
+        for pkg_dir in _pkg_dir_cache[cache_key]:
+            if pkg_dir.name == top_pkg:
+                alt_base = pkg_dir.parent
+                alt_candidate = alt_base / rel
+                for path in (alt_candidate.with_suffix(".py"), alt_candidate / "__init__.py"):
+                    if path.is_file():
+                        try:
+                            resolved = path.resolve()
+                            resolved.relative_to(root)
+                            return str(resolved)
+                        except ValueError:
+                            pass
 
     return None
 
