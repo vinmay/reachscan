@@ -8,12 +8,15 @@ are metadata for reporting only and do not drive detection logic.
 The four patterns (all known frameworks reduce to one of these):
 
   Pattern 1 — Decorator on a function:
-      @tool                  LangChain, CrewAI, smolagents
-      @function_tool         OpenAI Agents
+      @tool                  LangChain, CrewAI, smolagents, Strands, Haystack, Agno
+      @function_tool         OpenAI Agents, Agency Swarm
       @agent.tool            Pydantic AI
       @mcp.tool()            MCP Python SDK / FastMCP
       @kernel_function()     Semantic Kernel
       @register_for_llm()    AutoGen
+      @register_tool()       MetaGPT
+      @marvin.fn             Marvin
+      @ai_model              Marvin
       @app.call_tool()       MCP lowlevel server API (dispatch handler for all tools)
       @app.list_tools()      MCP lowlevel server API (handler that lists available tools)
 
@@ -66,6 +69,17 @@ FRAMEWORK_PYDANTIC_AI = "pydantic_ai"
 FRAMEWORK_OPENAI_AGENTS = "openai_agents"
 FRAMEWORK_SEMANTIC_KERNEL = "semantic_kernel"
 FRAMEWORK_AUTOGEN = "autogen"
+FRAMEWORK_STRANDS = "strands"
+FRAMEWORK_HAYSTACK = "haystack"
+FRAMEWORK_AGNO = "agno"
+FRAMEWORK_METAGPT = "metagpt"
+FRAMEWORK_MARVIN = "marvin"
+FRAMEWORK_AGENCY_SWARM = "agency_swarm"
+FRAMEWORK_SMOLAGENTS = "smolagents"
+FRAMEWORK_GOOGLE_ADK = "google_adk"
+FRAMEWORK_LLAMAINDEX = "llamaindex"
+FRAMEWORK_DSPY = "dspy"
+FRAMEWORK_CAMEL = "camel"
 FRAMEWORK_UNKNOWN = "unknown"
 
 # ---------------------------------------------------------------------------
@@ -92,12 +106,16 @@ ENTRY_POINT_DECORATORS: Dict[str, str] = {
     "register_for_llm": FRAMEWORK_AUTOGEN,
     "call_tool":        FRAMEWORK_MCP,           # @app.call_tool()   — MCP lowlevel dispatch handler
     "list_tools":       FRAMEWORK_MCP,           # @app.list_tools()  — MCP lowlevel tool listing
+    "register_tool":    FRAMEWORK_METAGPT,       # @register_tool(tags=[...])
+    "fn":               FRAMEWORK_MARVIN,        # @marvin.fn
+    "ai_model":         FRAMEWORK_MARVIN,        # @marvin.ai_model
 }
 
 # Maps base class name → default framework label.
 ENTRY_POINT_BASE_CLASSES: Dict[str, str] = {
     "BaseTool":      "langchain_or_crewai",
     "StructuredTool": FRAMEWORK_LANGCHAIN,
+    "Toolkit":        FRAMEWORK_AGNO,             # Agno/Phidata toolkit base class
 }
 
 # Maps module prefix → canonical framework label.
@@ -114,6 +132,21 @@ KNOWN_FRAMEWORK_MODULES: Dict[str, str] = {
     "semantic_kernel":  FRAMEWORK_SEMANTIC_KERNEL,
     "autogen_core":     FRAMEWORK_AUTOGEN,
     "autogen":          FRAMEWORK_AUTOGEN,
+    "strands":          FRAMEWORK_STRANDS,
+    "strands_tools":    FRAMEWORK_STRANDS,
+    "haystack":         FRAMEWORK_HAYSTACK,
+    "agno":             FRAMEWORK_AGNO,
+    "phi":              FRAMEWORK_AGNO,            # Phidata (old name for Agno)
+    "phidata":          FRAMEWORK_AGNO,
+    "metagpt":          FRAMEWORK_METAGPT,
+    "marvin":           FRAMEWORK_MARVIN,
+    "agency_swarm":     FRAMEWORK_AGENCY_SWARM,
+    "smolagents":       FRAMEWORK_SMOLAGENTS,
+    "google.adk":       FRAMEWORK_GOOGLE_ADK,
+    "google_adk":       FRAMEWORK_GOOGLE_ADK,
+    "llama_index":      FRAMEWORK_LLAMAINDEX,
+    "dspy":             FRAMEWORK_DSPY,
+    "camel":            FRAMEWORK_CAMEL,
 }
 
 # Variable names that strongly suggest a locally-constructed MCP server instance.
@@ -379,7 +412,7 @@ def _decorator_key(
 
 def _check_decorator(
     decorator: ast.expr,
-    func_node: ast.FunctionDef | ast.AsyncFunctionDef,
+    func_node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef,
     file_path: str,
     imports: Dict[str, str],
     inferred: Optional[Dict[str, str]] = None,
@@ -394,6 +427,12 @@ def _check_decorator(
     if isinstance(decorator, ast.Call):
         name = _name_from_call(decorator, default=func_node.name)
 
+    # For decorated classes, prefer a static 'name' attribute in the class body
+    if isinstance(func_node, ast.ClassDef):
+        class_name = _extract_class_name_attr(func_node)
+        if class_name:
+            name = class_name
+
     framework, confidence = _resolve_framework(key, receiver, imports, inferred)
 
     return EntryPoint(
@@ -404,6 +443,29 @@ def _check_decorator(
         pattern_type=PATTERN_DECORATOR,
         confidence=confidence,
     )
+
+
+def _extract_class_name_attr(class_node: ast.ClassDef) -> Optional[str]:
+    """Extract a static string 'name' attribute from a class body, or None."""
+    for stmt in class_node.body:
+        if isinstance(stmt, ast.Assign):
+            for target in stmt.targets:
+                if (
+                    isinstance(target, ast.Name) and target.id == "name"
+                    and isinstance(stmt.value, ast.Constant)
+                    and isinstance(stmt.value.value, str)
+                ):
+                    return stmt.value.value
+        elif (
+            isinstance(stmt, ast.AnnAssign)
+            and isinstance(stmt.target, ast.Name)
+            and stmt.target.id == "name"
+            and stmt.value is not None
+            and isinstance(stmt.value, ast.Constant)
+            and isinstance(stmt.value.value, str)
+        ):
+            return stmt.value.value
+    return None
 
 
 def _name_from_call(call: ast.Call, default: str) -> str:
@@ -550,12 +612,23 @@ def detect_py_entry_points(file_path: str, content: str) -> List[EntryPoint]:
                     break  # first matching decorator wins per function
 
         elif isinstance(node, ast.ClassDef):
-            ep = _check_base_tool_class(node, file_path, imports)
-            if ep:
-                key = (ep.lineno, ep.name)
-                if key not in seen:
-                    seen.add(key)
-                    results.append(ep)
+            # Check decorators on classes (e.g. @register_tool, @ai_model)
+            for decorator in node.decorator_list:
+                ep = _check_decorator(decorator, node, file_path, imports, inferred)
+                if ep:
+                    key = (ep.lineno, ep.name)
+                    if key not in seen:
+                        seen.add(key)
+                        results.append(ep)
+                    break
+            else:
+                # No decorator matched — check base class inheritance
+                ep = _check_base_tool_class(node, file_path, imports)
+                if ep:
+                    key = (ep.lineno, ep.name)
+                    if key not in seen:
+                        seen.add(key)
+                        results.append(ep)
 
     # Secondary pass: MCP low-level handlers may appear inside factory functions
     # (e.g. `def create_app(): app = Server(...); @app.call_tool() async def call_tool()`).
