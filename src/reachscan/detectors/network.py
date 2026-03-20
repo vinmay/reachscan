@@ -19,8 +19,17 @@ NETWORK_CALL_ATTRS = {
     ("requests", "post"): "requests.post",
     ("requests", "put"): "requests.put",
     ("requests", "delete"): "requests.delete",
+    ("requests", "patch"): "requests.patch",
+    ("requests", "head"): "requests.head",
+    ("requests", "Session"): "requests.Session",
     ("httpx", "get"): "httpx.get",
     ("httpx", "post"): "httpx.post",
+    ("httpx", "put"): "httpx.put",
+    ("httpx", "delete"): "httpx.delete",
+    ("httpx", "patch"): "httpx.patch",
+    ("httpx", "head"): "httpx.head",
+    ("httpx", "Client"): "httpx.Client",
+    ("httpx", "AsyncClient"): "httpx.AsyncClient",
     ("urllib", "request"): "urllib.request",
     ("urllib.request", "urlopen"): "urllib.request.urlopen",
     ("urllib3", "PoolManager"): "urllib3.PoolManager",
@@ -29,6 +38,18 @@ NETWORK_CALL_ATTRS = {
     ("websockets", "connect"): "websockets.connect",
     ("websocket", "create_connection"): "websocket.create_connection",
 }
+
+# HTTP client constructors — when assigned to a variable, method calls on that
+# variable (.get(), .post(), etc.) are network calls even though the variable
+# name is arbitrary (e.g. client = httpx.Client(); client.get(...)).
+HTTP_CLIENT_CONSTRUCTORS = {
+    "requests.Session", "requests.session",
+    "httpx.Client", "httpx.AsyncClient",
+    "aiohttp.ClientSession",
+}
+
+# HTTP verb methods that indicate a network call when invoked on a client instance.
+HTTP_VERB_METHODS = {"get", "post", "put", "delete", "patch", "head", "options", "request", "send"}
 
 # also detect direct usage of lower-level socket functions
 SOCKET_FUNCS = {"socket", "create_connection", "connect"}
@@ -177,6 +198,43 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                                 lineno=getattr(node, "lineno", None),
                                 confidence=0.8
                             ))
+
+    # HTTP client instance tracking: detect variables assigned from known HTTP
+    # client constructors, then flag HTTP verb calls on those variables.
+    # e.g. client = httpx.Client() ... client.get("/foo")
+    client_vars: dict = {}  # var_name -> constructor label (e.g. "httpx.Client")
+    for node in ast.walk(tree):
+        # Track assignments: client = httpx.Client(...)
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
+                resolved = resolve_name(node.value.func)
+                if resolved and resolved in HTTP_CLIENT_CONSTRUCTORS:
+                    client_vars[target.id] = resolved
+        # Also track async with: async with httpx.AsyncClient() as client:
+        if isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if (item.optional_vars and isinstance(item.optional_vars, ast.Name)
+                        and isinstance(item.context_expr, ast.Call)):
+                    resolved = resolve_name(item.context_expr.func)
+                    if resolved and resolved in HTTP_CLIENT_CONSTRUCTORS:
+                        client_vars[item.optional_vars.id] = resolved
+
+    if client_vars:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if (isinstance(node.func.value, ast.Name)
+                        and node.func.value.id in client_vars
+                        and node.func.attr in HTTP_VERB_METHODS):
+                    constructor = client_vars[node.func.value.id]
+                    evidence = f"{constructor}.{node.func.attr}"
+                    findings.append(CapabilityFinding(
+                        capability="SEND",
+                        evidence=evidence,
+                        file=path,
+                        lineno=getattr(node, "lineno", None),
+                        confidence=0.95
+                    ))
 
     # Literal-URL heuristic: flag calls that receive an http(s):// string literal,
     # but only when the called function is a known HTTP verb or method name.
