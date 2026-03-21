@@ -19,9 +19,15 @@ from reachscan.py_entry_points import (
     FRAMEWORK_MARVIN,
     FRAMEWORK_AGENCY_SWARM,
     FRAMEWORK_SMOLAGENTS,
+    FRAMEWORK_LLAMAINDEX,
+    FRAMEWORK_DSPY,
+    FRAMEWORK_GOOGLE_ADK,
+    FRAMEWORK_SWARM,
+    FRAMEWORK_CAMEL,
     FRAMEWORK_UNKNOWN,
     PATTERN_DECORATOR,
     PATTERN_CLASS_ATTRIBUTE,
+    PATTERN_REGISTRATION_CALL,
 )
 
 
@@ -1096,3 +1102,352 @@ def web_search(query: str) -> str:
     assert results[0].name == "web_search"
     assert results[0].framework == FRAMEWORK_SMOLAGENTS
     assert results[0].confidence == 0.95
+
+
+# ---------------------------------------------------------------------------
+# Pattern 3: Factory / Constructor Call Detection
+# ---------------------------------------------------------------------------
+
+# --- LlamaIndex ---
+
+class TestLlamaIndexFactory:
+    def test_function_tool_from_defaults_fn_kwarg(self):
+        content = '''\
+from llama_index.core.tools import FunctionTool
+
+def my_search(query: str) -> str:
+    return query
+
+tool = FunctionTool.from_defaults(fn=my_search, description="Search")
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 1
+        r = results[0]
+        assert r.name == "my_search"
+        assert r.framework == FRAMEWORK_LLAMAINDEX
+        assert r.pattern_type == PATTERN_REGISTRATION_CALL
+        assert r.confidence == 0.95
+        assert r.lineno == 3  # points to the function def, not the call
+
+    def test_function_tool_from_defaults_positional(self):
+        content = '''\
+from llama_index.core.tools import FunctionTool
+
+def add(a: int, b: int) -> int:
+    return a + b
+
+tool = FunctionTool.from_defaults(add)
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 1
+        assert results[0].name == "add"
+        assert results[0].framework == FRAMEWORK_LLAMAINDEX
+
+    def test_function_tool_from_defaults_explicit_name(self):
+        content = '''\
+from llama_index.core.tools import FunctionTool
+
+def my_func():
+    pass
+
+tool = FunctionTool.from_defaults(fn=my_func, name="search_tool")
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 1
+        assert results[0].name == "search_tool"
+
+    def test_query_engine_tool_with_name(self):
+        content = '''\
+from llama_index.core.tools import QueryEngineTool
+
+tool = QueryEngineTool.from_defaults(query_engine=engine, name="query_docs")
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 1
+        assert results[0].name == "query_docs"
+        assert results[0].framework == FRAMEWORK_LLAMAINDEX
+        assert results[0].pattern_type == PATTERN_REGISTRATION_CALL
+
+    def test_multiple_tools(self):
+        content = '''\
+from llama_index.core.tools import FunctionTool
+
+def search(q: str) -> str:
+    return q
+
+def summarize(text: str) -> str:
+    return text
+
+search_tool = FunctionTool.from_defaults(fn=search)
+summarize_tool = FunctionTool.from_defaults(fn=summarize)
+'''
+        results = detect_py_entry_points("tools.py", content)
+        names = [r.name for r in results]
+        assert "search" in names
+        assert "summarize" in names
+        assert len(results) == 2
+
+    def test_no_match_without_import(self):
+        """FunctionTool.from_defaults without llama_index import should not match."""
+        content = '''\
+def my_func():
+    pass
+
+tool = FunctionTool.from_defaults(fn=my_func)
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 0
+
+
+# --- DSPy ---
+
+class TestDSPyFactory:
+    def test_dspy_tool_positional(self):
+        content = '''\
+import dspy
+
+def search(query: str) -> str:
+    return query
+
+tool = dspy.Tool(search, name="search")
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 1
+        r = results[0]
+        assert r.name == "search"
+        assert r.framework == FRAMEWORK_DSPY
+        assert r.pattern_type == PATTERN_REGISTRATION_CALL
+        assert r.confidence == 0.95
+
+    def test_dspy_tool_bare_import(self):
+        content = '''\
+from dspy import Tool
+
+def my_func():
+    pass
+
+tool = Tool(my_func, name="my_tool")
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 1
+        assert results[0].name == "my_tool"
+        assert results[0].framework == FRAMEWORK_DSPY
+
+    def test_dspy_tool_no_name(self):
+        """Without name= kwarg, falls back to function reference name."""
+        content = '''\
+from dspy import Tool
+
+def calculator(expr: str) -> str:
+    return expr
+
+tool = Tool(calculator)
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 1
+        assert results[0].name == "calculator"
+
+
+# --- OpenAI Swarm ---
+
+class TestOpenAISwarmFactory:
+    def test_agent_functions_list(self):
+        content = '''\
+from swarm import Agent
+
+def get_weather(location: str) -> str:
+    return "sunny"
+
+def send_email(to: str, body: str) -> str:
+    return "sent"
+
+agent = Agent(name="helper", functions=[get_weather, send_email])
+'''
+        results = detect_py_entry_points("tools.py", content)
+        names = [r.name for r in results]
+        assert "get_weather" in names
+        assert "send_email" in names
+        assert len(results) == 2
+        for r in results:
+            assert r.framework == FRAMEWORK_SWARM
+            assert r.pattern_type == PATTERN_REGISTRATION_CALL
+            assert r.confidence == 0.95
+
+    def test_agent_functions_single(self):
+        content = '''\
+from swarm import Agent
+
+def my_tool():
+    pass
+
+agent = Agent(functions=[my_tool])
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 1
+        assert results[0].name == "my_tool"
+
+    def test_no_match_without_swarm_import(self):
+        """Agent(functions=[...]) without swarm import should not match."""
+        content = '''\
+def my_func():
+    pass
+
+agent = Agent(functions=[my_func])
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 0
+
+    def test_lineno_points_to_func_def(self):
+        content = '''\
+from swarm import Agent
+
+def helper_func():
+    pass
+
+agent = Agent(functions=[helper_func])
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 1
+        assert results[0].lineno == 3  # function def line, not Agent() call line
+
+
+# --- Google ADK ---
+
+class TestGoogleADKFactory:
+    def test_agent_tools_list(self):
+        content = '''\
+from google.adk import Agent
+
+def search_web(query: str) -> str:
+    return query
+
+def get_time() -> str:
+    return "now"
+
+agent = Agent(tools=[search_web, get_time])
+'''
+        results = detect_py_entry_points("tools.py", content)
+        names = [r.name for r in results]
+        assert "search_web" in names
+        assert "get_time" in names
+        assert len(results) == 2
+        for r in results:
+            assert r.framework == FRAMEWORK_GOOGLE_ADK
+            assert r.pattern_type == PATTERN_REGISTRATION_CALL
+
+    def test_google_adk_alt_import(self):
+        content = '''\
+from google_adk import Agent
+
+def my_tool():
+    pass
+
+a = Agent(tools=[my_tool])
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 1
+        assert results[0].framework == FRAMEWORK_GOOGLE_ADK
+
+    def test_no_false_positive_pydantic_agent(self):
+        """Agent(tools=[...]) from pydantic_ai should NOT match as Google ADK."""
+        content = '''\
+from pydantic_ai import Agent
+
+def my_tool():
+    pass
+
+agent = Agent(tools=[my_tool])
+'''
+        results = detect_py_entry_points("tools.py", content)
+        # Should not produce Pattern 3 results (pydantic_ai Agent is not Google ADK)
+        factory_results = [r for r in results if r.pattern_type == PATTERN_REGISTRATION_CALL]
+        assert len(factory_results) == 0
+
+
+# --- CAMEL AI ---
+
+class TestCamelAIFactory:
+    def test_function_tool_positional(self):
+        content = '''\
+from camel.toolkits import FunctionTool
+
+def my_func(x: str) -> str:
+    return x
+
+tool = FunctionTool(my_func)
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 1
+        r = results[0]
+        assert r.name == "my_func"
+        assert r.framework == FRAMEWORK_CAMEL
+        assert r.pattern_type == PATTERN_REGISTRATION_CALL
+        assert r.confidence == 0.95
+
+    def test_multiple_function_tools_in_list(self):
+        content = '''\
+from camel.toolkits import FunctionTool
+
+def search(q: str) -> str:
+    return q
+
+def write(text: str) -> str:
+    return text
+
+tools = [FunctionTool(search), FunctionTool(write)]
+'''
+        results = detect_py_entry_points("tools.py", content)
+        names = [r.name for r in results]
+        assert "search" in names
+        assert "write" in names
+        assert len(results) == 2
+
+
+# --- Edge cases ---
+
+class TestFactoryEdgeCases:
+    def test_no_duplicate_with_decorator(self):
+        """If a function is both decorated and registered via factory, dedup collapses them."""
+        content = '''\
+from llama_index.core.tools import FunctionTool
+from langchain_core.tools import tool
+
+@tool
+def my_search(q: str) -> str:
+    return q
+
+t = FunctionTool.from_defaults(fn=my_search)
+'''
+        results = detect_py_entry_points("tools.py", content)
+        # Dedup by (lineno, name) — both point to my_search at line 5
+        assert len(results) == 1
+        assert results[0].name == "my_search"
+
+    def test_factory_inside_function_not_detected(self):
+        """Factory calls inside function bodies should not be detected (module-level only)."""
+        content = '''\
+from llama_index.core.tools import FunctionTool
+
+def my_func():
+    pass
+
+def setup():
+    tool = FunctionTool.from_defaults(fn=my_func)
+    return tool
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 0
+
+    def test_expr_statement_factory(self):
+        """Factory call as bare expression (no assignment)."""
+        content = '''\
+from dspy import Tool
+
+def my_func():
+    pass
+
+Tool(my_func)
+'''
+        results = detect_py_entry_points("tools.py", content)
+        assert len(results) == 1
+        assert results[0].name == "my_func"

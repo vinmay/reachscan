@@ -23,9 +23,13 @@ The four patterns (all known frameworks reduce to one of these):
   Pattern 2 — Class inheriting from a base tool class:
       class MyTool(BaseTool): name = "..."
 
-  Pattern 3 — Registration call  [planned, not yet implemented]
-      StructuredTool.from_function(func=my_func)
-      agent.register_tool(my_func)
+  Pattern 3 — Factory / constructor call:
+      FunctionTool.from_defaults(fn=func)   LlamaIndex
+      QueryEngineTool.from_defaults(name=x) LlamaIndex
+      dspy.Tool(func, name="x")            DSPy
+      Agent(functions=[f1, f2])             OpenAI Swarm
+      Agent(tools=[f1, f2])                 Google ADK
+      FunctionTool(func)                    CAMEL AI
 
   Pattern 4 — Dict/schema definition  [planned, not yet implemented]
       tools = [{"name": "read_file", "input_schema": {...}}]
@@ -42,9 +46,8 @@ Extensibility:
   --entry-point-decorator CLI flag will append to these dicts at runtime.
 
 Known limitations:
-  - Factory calls (StructuredTool.from_function, FunctionTool.from_defaults)
-    are not detected in v1 — function name not statically available at call site.
-  - Dynamic registration (tools in a loop, getattr-based) is not detected.
+  - Factory calls in loops or conditional branches are not detected.
+  - Dynamic registration (getattr-based) is not detected.
   - Three-level decorator chains (@pytest.mark.tool) are skipped; only
     simple (@name) and two-level (@obj.name) decorators are matched.
   - Local imports inside functions are not examined.
@@ -80,6 +83,7 @@ FRAMEWORK_GOOGLE_ADK = "google_adk"
 FRAMEWORK_LLAMAINDEX = "llamaindex"
 FRAMEWORK_DSPY = "dspy"
 FRAMEWORK_CAMEL = "camel"
+FRAMEWORK_SWARM = "openai_swarm"
 FRAMEWORK_UNKNOWN = "unknown"
 
 # ---------------------------------------------------------------------------
@@ -88,7 +92,7 @@ FRAMEWORK_UNKNOWN = "unknown"
 
 PATTERN_DECORATOR = "decorator"
 PATTERN_CLASS_ATTRIBUTE = "class_attribute"
-PATTERN_REGISTRATION_CALL = "registration_call"  # planned
+PATTERN_REGISTRATION_CALL = "registration_call"
 
 # ---------------------------------------------------------------------------
 # Detection tables  (update these to add framework support, not logic)
@@ -117,6 +121,93 @@ ENTRY_POINT_BASE_CLASSES: Dict[str, str] = {
     "StructuredTool": FRAMEWORK_LANGCHAIN,
     "Toolkit":        FRAMEWORK_AGNO,             # Agno/Phidata toolkit base class
 }
+
+# ---------------------------------------------------------------------------
+# Pattern 3 — Factory / constructor call detection
+# ---------------------------------------------------------------------------
+#
+# Each entry describes a call pattern that registers one or more functions as
+# tools.  Two shapes:
+#
+#   "single"  — the call wraps a single function reference
+#               e.g. FunctionTool.from_defaults(fn=my_func)
+#               Detected args: first positional or specific keyword (fn_key).
+#
+#   "list"    — the call receives a list of function references in a kwarg
+#               e.g. Agent(functions=[func1, func2])
+#               Detected args: the list in the specified keyword (list_key).
+#
+# Fields:
+#   call_name    — the function/method name to match (e.g. "from_defaults", "Tool")
+#   receiver     — required receiver for attribute calls (e.g. "FunctionTool"), or
+#                  None for bare calls (e.g. "Tool(...)")
+#   module_hints — if the receiver or call_name is imported from one of these
+#                  module prefixes, the match is confirmed.  Empty = match any.
+#   shape        — "single" or "list"
+#   fn_key       — for single: keyword argument containing the function ref
+#   list_key     — for list: keyword argument containing the function list
+#   name_key     — keyword argument for the tool's display name (optional)
+#   framework    — framework label to assign
+#
+# To add a new framework: append an entry here.  No detection logic changes.
+
+@dataclass
+class _FactoryPattern:
+    call_name: str
+    receiver: Optional[str]
+    module_hints: Tuple[str, ...]
+    shape: str  # "single" or "list"
+    fn_key: Optional[str]       # for shape="single"
+    list_key: Optional[str]     # for shape="list"
+    name_key: Optional[str]
+    framework: str
+
+ENTRY_POINT_FACTORIES: List[_FactoryPattern] = [
+    # LlamaIndex: FunctionTool.from_defaults(fn=my_func, name="x")
+    _FactoryPattern(
+        call_name="from_defaults", receiver="FunctionTool",
+        module_hints=("llama_index",),
+        shape="single", fn_key="fn", list_key=None,
+        name_key="name", framework=FRAMEWORK_LLAMAINDEX,
+    ),
+    # LlamaIndex: QueryEngineTool.from_defaults(query_engine=..., name="x")
+    # This wraps an engine object, not a function — we detect it as a named tool
+    # but the entry point name comes from the name= kwarg, not a function ref.
+    _FactoryPattern(
+        call_name="from_defaults", receiver="QueryEngineTool",
+        module_hints=("llama_index",),
+        shape="single", fn_key=None, list_key=None,
+        name_key="name", framework=FRAMEWORK_LLAMAINDEX,
+    ),
+    # DSPy: dspy.Tool(func, name="x") or Tool(func, name="x")
+    _FactoryPattern(
+        call_name="Tool", receiver=None,
+        module_hints=("dspy",),
+        shape="single", fn_key=None, list_key=None,
+        name_key="name", framework=FRAMEWORK_DSPY,
+    ),
+    # OpenAI Swarm: Agent(functions=[func1, func2])
+    _FactoryPattern(
+        call_name="Agent", receiver=None,
+        module_hints=("swarm",),
+        shape="list", fn_key=None, list_key="functions",
+        name_key=None, framework=FRAMEWORK_SWARM,
+    ),
+    # Google ADK: Agent(tools=[func1, func2])
+    _FactoryPattern(
+        call_name="Agent", receiver=None,
+        module_hints=("google.adk", "google_adk"),
+        shape="list", fn_key=None, list_key="tools",
+        name_key=None, framework=FRAMEWORK_GOOGLE_ADK,
+    ),
+    # CAMEL AI: FunctionTool(func)
+    _FactoryPattern(
+        call_name="FunctionTool", receiver=None,
+        module_hints=("camel",),
+        shape="single", fn_key=None, list_key=None,
+        name_key=None, framework=FRAMEWORK_CAMEL,
+    ),
+]
 
 # Maps module prefix → canonical framework label.
 # Used by import resolution to assign authoritative framework + confidence 0.95.
@@ -147,6 +238,7 @@ KNOWN_FRAMEWORK_MODULES: Dict[str, str] = {
     "llama_index":      FRAMEWORK_LLAMAINDEX,
     "dspy":             FRAMEWORK_DSPY,
     "camel":            FRAMEWORK_CAMEL,
+    "swarm":            FRAMEWORK_SWARM,
 }
 
 # Variable names that strongly suggest a locally-constructed MCP server instance.
@@ -559,6 +651,275 @@ def _check_base_tool_class(
 
 
 # ---------------------------------------------------------------------------
+# Pattern 3: factory / constructor call check
+# ---------------------------------------------------------------------------
+
+def _extract_name_refs(node: ast.expr) -> List[str]:
+    """Extract function/variable name references from an AST expression.
+
+    Handles:
+        Name("func")          → ["func"]
+        [Name("f1"), Name("f2")] → ["f1", "f2"]
+        obj.method            → ["method"]  (attribute access)
+    """
+    if isinstance(node, ast.Name):
+        return [node.id]
+    if isinstance(node, ast.Attribute):
+        return [node.attr]
+    if isinstance(node, (ast.List, ast.Tuple)):
+        names = []
+        for elt in node.elts:
+            if isinstance(elt, ast.Name):
+                names.append(elt.id)
+            elif isinstance(elt, ast.Attribute):
+                names.append(elt.attr)
+        return names
+    return []
+
+
+def _match_factory_call(
+    call: ast.Call,
+    imports: Dict[str, str],
+) -> Optional[_FactoryPattern]:
+    """Return the matching _FactoryPattern for a Call node, or None.
+
+    Matches based on:
+      1. call_name (method/function name)
+      2. receiver (if pattern requires one)
+      3. module_hints (import origin must match at least one prefix)
+    """
+    func = call.func
+
+    # Attribute call: Receiver.method(...)
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        called_name = func.attr
+        receiver_name = func.value.id
+    # Bare call: ClassName(...)
+    elif isinstance(func, ast.Name):
+        called_name = func.id
+        receiver_name = None
+    else:
+        return None
+
+    for pattern in ENTRY_POINT_FACTORIES:
+        if pattern.call_name != called_name:
+            continue
+        # Check receiver constraint
+        if pattern.receiver is not None:
+            if receiver_name != pattern.receiver:
+                continue
+        elif receiver_name is not None:
+            # Pattern expects bare call but got attribute call — skip
+            # Exception: dspy.Tool(...) should match Tool with receiver "dspy"
+            # Check if the receiver is the module itself
+            module = imports.get(receiver_name, "")
+            if not any(module == h or module.startswith(h + ".") for h in pattern.module_hints):
+                continue
+
+        # Verify import origin matches module_hints (if hints are specified)
+        if pattern.module_hints:
+            # Check the receiver or the call_name in imports
+            lookup_name = receiver_name if receiver_name else called_name
+            module = imports.get(lookup_name, "")
+            if not module:
+                # Also try the call_name directly (for `from dspy import Tool`)
+                module = imports.get(called_name, "")
+            if not module:
+                continue
+            if not any(module == h or module.startswith(h + ".") for h in pattern.module_hints):
+                continue
+
+        return pattern
+    return None
+
+
+def _check_factory_call(
+    node: ast.AST,
+    file_path: str,
+    imports: Dict[str, str],
+    func_defs: Dict[str, int],
+) -> List[EntryPoint]:
+    """Check a module-level statement for factory/constructor tool registration.
+
+    Scans Assign, Expr, and list-append patterns for calls matching
+    ENTRY_POINT_FACTORIES.
+
+    Args:
+        node: a top-level AST statement
+        file_path: source file path
+        imports: import map from _collect_imports
+        func_defs: map of function name → lineno for functions defined in this file
+
+    Returns list of EntryPoint objects (may be empty, one, or many for list patterns).
+    """
+    # Extract Call nodes from common statement shapes
+    calls: List[ast.Call] = []
+
+    if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+        calls.append(node.value)
+    elif isinstance(node, ast.Assign):
+        if isinstance(node.value, ast.Call):
+            calls.append(node.value)
+        # tools = [FunctionTool(...), FunctionTool(...)]
+        elif isinstance(node.value, (ast.List, ast.Tuple)):
+            for elt in node.value.elts:
+                if isinstance(elt, ast.Call):
+                    calls.append(elt)
+
+    results: List[EntryPoint] = []
+    for call in calls:
+        pattern = _match_factory_call(call, imports)
+        if pattern is None:
+            continue
+
+        if pattern.shape == "single":
+            ep = _factory_single(call, pattern, file_path, imports, func_defs)
+            if ep:
+                results.append(ep)
+        elif pattern.shape == "list":
+            results.extend(_factory_list(call, pattern, file_path, imports, func_defs))
+
+    return results
+
+
+def _resolve_factory_confidence(
+    call: ast.Call,
+    pattern: _FactoryPattern,
+    imports: Dict[str, str],
+) -> Tuple[str, float]:
+    """Resolve framework label and confidence for a factory call.
+
+    Checks all plausible import lookups: the pattern's receiver, call_name,
+    and the actual receiver variable from the call node (for dspy.Tool style).
+    """
+    # Collect candidate names to look up in the import map
+    candidates: List[str] = []
+    if pattern.receiver:
+        candidates.append(pattern.receiver)
+    candidates.append(pattern.call_name)
+
+    # Also check the actual receiver from the call AST (e.g. "dspy" in dspy.Tool)
+    func = call.func
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        candidates.append(func.value.id)
+
+    for name in candidates:
+        module = imports.get(name, "")
+        if module:
+            fw = _module_to_framework(module)
+            if fw:
+                return fw, 0.95
+            return pattern.framework, 0.70
+
+    return pattern.framework, 0.60
+
+
+def _factory_single(
+    call: ast.Call,
+    pattern: _FactoryPattern,
+    file_path: str,
+    imports: Dict[str, str],
+    func_defs: Dict[str, int],
+) -> Optional[EntryPoint]:
+    """Handle a single-function factory call like FunctionTool.from_defaults(fn=func)."""
+    # Try to resolve the function name
+    func_name: Optional[str] = None
+
+    # Check specific keyword first
+    if pattern.fn_key:
+        for kw in call.keywords:
+            if kw.arg == pattern.fn_key:
+                refs = _extract_name_refs(kw.value)
+                if refs:
+                    func_name = refs[0]
+                break
+
+    # Fall back to first positional arg
+    if func_name is None and call.args:
+        refs = _extract_name_refs(call.args[0])
+        if refs:
+            func_name = refs[0]
+
+    # Try to get an explicit name from name= kwarg
+    explicit_name: Optional[str] = None
+    if pattern.name_key:
+        for kw in call.keywords:
+            if kw.arg == pattern.name_key and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                explicit_name = kw.value.value
+                break
+
+    # We need at least a function name or an explicit name
+    tool_name = explicit_name or func_name
+    if tool_name is None:
+        return None
+
+    # Resolve the lineno: prefer the function def location, fall back to call site
+    lineno = func_defs.get(func_name, call.lineno) if func_name else call.lineno
+
+    # Resolve framework confidence from imports
+    # Try receiver, call_name, and the actual receiver from the call node
+    fw, confidence = _resolve_factory_confidence(call, pattern, imports)
+
+    return EntryPoint(
+        name=tool_name,
+        file=file_path,
+        lineno=lineno,
+        framework=fw,
+        pattern_type=PATTERN_REGISTRATION_CALL,
+        confidence=confidence,
+    )
+
+
+def _factory_list(
+    call: ast.Call,
+    pattern: _FactoryPattern,
+    file_path: str,
+    imports: Dict[str, str],
+    func_defs: Dict[str, int],
+) -> List[EntryPoint]:
+    """Handle a list-of-functions factory call like Agent(functions=[f1, f2])."""
+    results: List[EntryPoint] = []
+
+    # Find the list keyword
+    list_node: Optional[ast.expr] = None
+    if pattern.list_key:
+        for kw in call.keywords:
+            if kw.arg == pattern.list_key:
+                list_node = kw.value
+                break
+
+    if list_node is None:
+        return results
+
+    func_names = _extract_name_refs(list_node)
+
+    # Resolve framework confidence
+    fw, confidence = _resolve_factory_confidence(call, pattern, imports)
+
+    for name in func_names:
+        lineno = func_defs.get(name, call.lineno)
+        results.append(EntryPoint(
+            name=name,
+            file=file_path,
+            lineno=lineno,
+            framework=fw,
+            pattern_type=PATTERN_REGISTRATION_CALL,
+            confidence=confidence,
+        ))
+
+    return results
+
+
+def _collect_func_defs(tree: ast.AST) -> Dict[str, int]:
+    """Collect module-level function definitions: name → lineno."""
+    defs: Dict[str, int] = {}
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            defs[node.name] = node.lineno
+    return defs
+
+
+# ---------------------------------------------------------------------------
 # Core detection
 # ---------------------------------------------------------------------------
 
@@ -597,9 +958,19 @@ def detect_py_entry_points(file_path: str, content: str) -> List[EntryPoint]:
 
     imports = _collect_imports(tree)
     inferred = _infer_receiver_modules(tree, imports)
+    func_defs = _collect_func_defs(tree)
     results: List[EntryPoint] = []
     seen: set = set()  # (lineno, name) dedup
 
+    # Pattern 3: factory / constructor calls at module level
+    for node in ast.iter_child_nodes(tree):
+        for ep in _check_factory_call(node, file_path, imports, func_defs):
+            key = (ep.lineno, ep.name)
+            if key not in seen:
+                seen.add(key)
+                results.append(ep)
+
+    # Patterns 1 & 2: decorators and base classes
     for node in _iter_detectable_nodes(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for decorator in node.decorator_list:
