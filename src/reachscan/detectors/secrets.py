@@ -34,17 +34,37 @@ SECRET_CALL_ATTRS = {
 
 # Env var name suffixes that indicate configuration, not secrets.
 # When os.getenv / os.environ.get is called with a key whose name ends with
-# one of these suffixes, the finding is suppressed (high FP rate, low signal).
-_NON_SECRET_ENV_SUFFIXES = frozenset({
+# one of these suffixes, the finding confidence is lowered to 0.4 (config noise).
+_CONFIG_ENV_SUFFIXES = frozenset({
     "_PORT", "_HOST", "_TIMEOUT", "_DEBUG", "_LOG_LEVEL",
     "_WORKERS", "_THREADS", "_ENV", "_MODE", "_URL",
+    "_SIZE", "_COUNT", "_LIMIT", "_INTERVAL", "_RETRIES",
+    "_BATCH", "_ENABLED", "_DISABLED", "_DIR", "_PATH",
+    "_FORMAT", "_LEVEL", "_NAME", "_TYPE", "_VERSION",
+    "_REGION", "_ZONE", "_PREFIX", "_SUFFIX",
+})
+
+# Env var name patterns that strongly indicate credentials.
+# These get full confidence (0.9) regardless of other heuristics.
+_CREDENTIAL_ENV_SUFFIXES = frozenset({
+    "_KEY", "_SECRET", "_TOKEN", "_PASSWORD", "_CREDENTIALS",
+    "_API_KEY", "_APIKEY", "_AUTH", "_PRIVATE_KEY",
 })
 
 
-def _is_non_secret_env_key(key: str) -> bool:
-    """Return True if the env var key clearly refers to configuration, not a secret."""
+def _env_key_confidence(key: str) -> float:
+    """Return confidence for an env var key based on name patterns.
+
+    - Credential-like names (API_KEY, TOKEN, etc.) → 0.9
+    - Config-like names (PORT, SIZE, TIMEOUT, etc.) → 0.4
+    - Ambiguous / unknown → 0.7
+    """
     upper = key.upper()
-    return any(upper.endswith(s) for s in _NON_SECRET_ENV_SUFFIXES)
+    if any(upper.endswith(s) for s in _CREDENTIAL_ENV_SUFFIXES):
+        return 0.9
+    if any(upper.endswith(s) for s in _CONFIG_ENV_SUFFIXES):
+        return 0.4
+    return 0.7
 
 
 # If these names are imported directly, treat as secrets access.
@@ -123,16 +143,16 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                     slc = slc.value
                 key_name = const_str(slc)
                 evidence = f"{resolved}[...]"
+                conf = 0.9
                 if key_name:
-                    if _is_non_secret_env_key(key_name):
-                        continue
+                    conf = _env_key_confidence(key_name)
                     evidence = f"{resolved}[{key_name!r}]"
                 findings.append(CapabilityFinding(
                     capability="SECRETS",
                     evidence=evidence,
                     file=path,
                     lineno=getattr(node, "lineno", None),
-                    confidence=0.9,
+                    confidence=conf,
                 ))
 
     # Detect call sites
@@ -151,18 +171,17 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                         env_key = arg_const_str(node, 0)
                     for (mod, attr), label in SECRET_CALL_ATTRS.items():
                         if resolved == f"{mod}.{attr}":
-                            # Skip env vars that are obviously configuration, not secrets
-                            if env_key and _is_non_secret_env_key(env_key):
-                                break
                             evidence = label
+                            conf = 0.9
                             if env_key:
+                                conf = _env_key_confidence(env_key)
                                 evidence = f"{label}({env_key!r})"
                             findings.append(CapabilityFinding(
                                 capability="SECRETS",
                                 evidence=evidence,
                                 file=path,
                                 lineno=getattr(node, "lineno", None),
-                                confidence=0.9,
+                                confidence=conf,
                             ))
                             break
                     else:

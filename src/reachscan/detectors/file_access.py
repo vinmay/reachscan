@@ -156,11 +156,12 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                     else:
                         findings.append(CapabilityFinding("READ", evidence, path, getattr(node, "lineno", None), 0.9))
 
-    # Deduplicate by (capability, evidence, lineno)
+    # Deduplicate by (capability, lineno) — collapses "with open(...)" and "open(...)"
+    # at the same line into a single finding (preferring the first match seen).
     seen = set()
     unique: List[CapabilityFinding] = []
     for f in findings:
-        key = (f.capability, f.evidence, f.lineno)
+        key = (f.capability, f.lineno)
         if key in seen:
             continue
         seen.add(key)
