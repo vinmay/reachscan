@@ -216,4 +216,6 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
         f"Scanned: {results.get('num_files_scanned', 0)} python files, "
         f"{ts_files_scanned} TypeScript/JavaScript files under {target_str}{version_note}"
     )
+    lines.append("")
+    lines.append("Useful? Star reachscan on GitHub: https://github.com/vinmay/reachscan")
     return "\n".join(lines)

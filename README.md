@@ -4,6 +4,7 @@
 [![CI](https://github.com/vinmay/reachscan/actions/workflows/ci.yml/badge.svg)](https://github.com/vinmay/reachscan/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/vinmay/reachscan?style=social)](https://github.com/vinmay/reachscan)
 
 > Static capability analysis for Python and TypeScript/JavaScript AI code.
 > Know what it can do before it does it.
@@ -342,3 +343,9 @@ Static capability detection is the foundation. Reachability analysis on top of i
 Capability detection is stable. Reachability analysis is active — entry point detection covers all major Python agent frameworks and the call graph traversal handles projects of any size. TypeScript/JavaScript entry point detection is stable.
 
 The JSON output schema is stable at v1 — see [`docs/schema_v1.md`](docs/schema_v1.md) for the full field reference. Feedback, edge cases, and false positive reports are especially valuable — open an issue.
+
+---
+
+## Support
+
+If reachscan is useful to you, [star the repo](https://github.com/vinmay/reachscan) — it helps others find it and tells us people care about this problem.
