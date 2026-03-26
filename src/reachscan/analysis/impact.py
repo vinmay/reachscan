@@ -7,6 +7,29 @@ def _capability_set(findings: Iterable[Dict[str, Any]]) -> Set[str]:
     return {f.get("capability") for f in findings if f.get("capability")}
 
 
+def _reachable_capability_set(findings: Iterable[Dict[str, Any]]) -> Set[str]:
+    """Return capabilities that have at least one reachable finding.
+
+    A finding is considered reachable if its reachability field is "reachable"
+    or "module_level" (module-level code runs unconditionally).
+    Falls back to the full capability set when no reachability data is present.
+    """
+    reachable_states = {"reachable", "module_level"}
+    reachable_caps: Set[str] = set()
+    has_reachability_data = False
+    for f in findings:
+        state = f.get("reachability")
+        if state is not None:
+            has_reachability_data = True
+        cap = f.get("capability")
+        if cap and state in reachable_states:
+            reachable_caps.add(cap)
+    # If no finding has reachability data (e.g. old scan format), fall back
+    if not has_reachability_data:
+        return _capability_set(findings)
+    return reachable_caps
+
+
 def _has_destructive_write(findings: Iterable[Dict[str, Any]]) -> bool:
     destructive_tokens = ("remove", "unlink", "rename", "replace", "delete")
     for finding in findings:
@@ -22,7 +45,7 @@ def analyze_combined_capabilities(findings: List[Dict[str, Any]]) -> List[Dict[s
     """
     Infer higher-level risks by combining capabilities across findings.
     """
-    caps = _capability_set(findings)
+    caps = _reachable_capability_set(findings)
     risks: List[Dict[str, Any]] = []
 
     def add_risk(
