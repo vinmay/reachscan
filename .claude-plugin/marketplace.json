@@ -1,0 +1,16 @@
+{
+  "name": "reachscan",
+  "owner": {
+    "name": "Vinmay Nair",
+    "url": "https://github.com/vinmay"
+  },
+  "description": "reachscan plugins for vetting MCP servers and AI agent code.",
+  "plugins": [
+    {
+      "name": "reachscan",
+      "source": "./integrations/agent-plugins",
+      "description": "Vet an MCP server before you install it, using reachscan's static reachability analysis.",
+      "category": "security"
+    }
+  ]
+}
