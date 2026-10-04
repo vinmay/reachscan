@@ -159,6 +159,11 @@ def _relativize_paths(report: dict, root: Path) -> None:
             entry["finding"]["file"] = str(Path(entry["finding"]["file"]).relative_to(root))
         except (ValueError, KeyError):
             pass
+        for loc in entry["finding"].get("reachability_path_locations") or []:
+            try:
+                loc["file"] = str(Path(loc["file"]).relative_to(root))
+            except ValueError:
+                pass
     for ep in report.get("py_entry_points", []) + report.get("ts_entry_points", []):
         try:
             ep["file"] = str(Path(ep["file"]).relative_to(root))

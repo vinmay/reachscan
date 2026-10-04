@@ -242,7 +242,7 @@ python -m reachscan.cli examples/demo_agent
 ## Usage
 
 ```
-reachscan [target] [--json] [--severity {high,medium,none}] [--explain]
+reachscan [target] [--json | --sarif] [--severity {high,medium,none}] [--explain]
 ```
 
 `target` accepts:
@@ -251,6 +251,7 @@ reachscan [target] [--json] [--severity {high,medium,none}] [--explain]
 |---|---|
 | Local path | `reachscan .` |
 | Local path, JSON output | `reachscan ./my_agent --json` |
+| Local path, SARIF output | `reachscan ./my_agent --sarif` |
 | GitHub repository URL | `reachscan https://github.com/org/repo` |
 | MCP HTTP endpoint | `reachscan mcp+https://mcp.example.com` |
 | PyPI package (latest) | `reachscan pypi:requests` |
@@ -295,7 +296,17 @@ With `--explain`:
       → execute_code @ addon.py
 ```
 
-Only applies to the text report. Has no effect with `--json`.
+Only applies to the text report. Has no effect with `--json` or `--sarif`.
+
+### `--sarif` flag
+
+Writes [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) to stdout, for GitHub code scanning and other SARIF viewers. It can't be combined with `--json`, and exit codes are the same.
+
+- One rule per capability (`reachscan/EXECUTE`, `reachscan/SEND`, ...) and one per combined risk (`reachscan/combined/remote_control`, ...).
+- Levels: a reachable high-risk finding is `error`, a reachable medium-risk finding is `warning`, and everything else is `note`.
+- Each reachable finding has a `codeFlow` that walks the call chain from the LLM entry point to the sink, so the code scanning UI shows the path step by step.
+- Reachability state, confidence, and entry point are in each result's `properties`.
+- By default only `reachable` and `module_level` findings are included, so the Security tab shows only what an LLM can trigger. Add `--sarif-include-unreachable` to include everything.
 
 ---
 
@@ -324,6 +335,24 @@ To audit without blocking the pipeline (report only):
 
 ```yaml
 - run: reachscan . --json --severity none > reachscan-report.json
+```
+
+To show findings in the GitHub Security tab, with call chains, upload SARIF:
+
+```yaml
+permissions:
+  security-events: write
+  contents: read
+steps:
+  - uses: actions/checkout@v7
+  - run: pipx install reachscan
+  - name: Run reachscan
+    run: reachscan . --sarif > reachscan.sarif
+  - uses: github/codeql-action/upload-sarif@v4
+    if: always()
+    with:
+      sarif_file: reachscan.sarif
+      category: reachscan
 ```
 
 ---

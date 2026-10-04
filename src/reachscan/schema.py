@@ -29,6 +29,9 @@ def normalize_finding(finding: dict) -> dict:
     """
     result = dict(finding)
 
+    # Internal field consumed by the SARIF reporter; not part of schema v1.
+    result.pop("reachability_path_locations", None)
+
     # risk_level → lowercase; unknown values default to "medium"
     risk = result.get("risk_level")
     if isinstance(risk, str):
