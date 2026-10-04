@@ -4,6 +4,7 @@ import sys
 from reachscan.scanner import scan_target
 from reachscan.reporters.text_reporter import human_report
 from reachscan.reporters.json_reporter import json_report
+from reachscan.reporters.sarif_reporter import sarif_report
 
 _SEVERITY_LEVELS = {"high": {"high"}, "medium": {"high", "medium"}}
 
@@ -52,7 +53,19 @@ def build_parser():
         default=".",
         help="Local path, GitHub repo URL, MCP endpoint (mcp+https://...), or PyPI package (pypi:name or pypi:name==version)",
     )
-    p.add_argument("--json", action="store_true", dest="as_json", help="Print machine-readable JSON output")
+    output = p.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true", dest="as_json", help="Print machine-readable JSON output")
+    output.add_argument(
+        "--sarif",
+        action="store_true",
+        dest="as_sarif",
+        help="Print SARIF 2.1.0 output (for GitHub code scanning and other SARIF tools)",
+    )
+    p.add_argument(
+        "--sarif-include-unreachable",
+        action="store_true",
+        help="With --sarif, also include findings that are not reachable from an LLM entry point",
+    )
     p.add_argument("--rules", choices=["core", "all"], default="core", help="Ruleset to run (currently: core)")
     p.add_argument(
         "--severity",
@@ -71,6 +84,8 @@ def build_parser():
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.sarif_include_unreachable and not args.as_sarif:
+        parser.error("--sarif-include-unreachable requires --sarif")
 
     try:
         results = scan_target(args.path, ruleset=args.rules, progress_callback=_progress_callback)
@@ -80,6 +95,8 @@ def main(argv=None):
 
     if args.as_json:
         print(json_report(results))
+    elif args.as_sarif:
+        print(sarif_report(results, include_unreachable=args.sarif_include_unreachable))
     else:
         print(human_report(results, explain=args.explain))
 

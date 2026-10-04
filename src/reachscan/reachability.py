@@ -86,11 +86,16 @@ class ReachabilityResult:
                             Empty list when state is not REACHABLE.
         path_truncated    — True if len(path) > DISPLAY_DEPTH. The full path
                             is always stored; truncation is a display hint only.
+        path_locations    — one {"function", "file", "lineno"} dict per hop in
+                            path, giving each function's definition site. Used
+                            by the SARIF reporter for codeFlows; not part of
+                            the JSON v1 schema.
     """
     state: str
     entry_point_name: Optional[str] = None
     path: List[str] = field(default_factory=list)
     path_truncated: bool = False
+    path_locations: List[dict] = field(default_factory=list)
 
     def as_finding_fields(self) -> dict:
         """Return the dict fragment written into a finding."""
@@ -99,6 +104,7 @@ class ReachabilityResult:
             "entry_point_name": self.entry_point_name,
             "reachability_path": self.path if self.path else None,
             "reachability_path_truncated": self.path_truncated,
+            "reachability_path_locations": self.path_locations if self.path_locations else None,
         }
 
 
@@ -113,6 +119,7 @@ REACHABILITY_FIELDS = (
     "entry_point_name",
     "reachability_path",
     "reachability_path_truncated",
+    "reachability_path_locations",
 )
 
 
@@ -191,6 +198,21 @@ def _containing_function(
     return None
 
 
+def _path_locations(nodes: List[FunctionNode], lineno_index: LinenoIndex) -> List[dict]:
+    """Return a {"function", "file", "lineno"} dict for each node in a call path.
+
+    lineno is the function's definition line, or None if it is not indexed.
+    """
+    locations = []
+    for file, qual in nodes:
+        def_lineno = next(
+            (ln for ln, (q, _end) in lineno_index.get(file, {}).items() if q == qual),
+            None,
+        )
+        locations.append({"function": qual, "file": file, "lineno": def_lineno})
+    return locations
+
+
 # ---------------------------------------------------------------------------
 # BFS
 # ---------------------------------------------------------------------------
@@ -200,20 +222,20 @@ def _bfs(
     graph: CallGraph,
     max_depth: int,
     visited_cap: int = 50_000,
-) -> Tuple[Dict[FunctionNode, List[str]], int]:
+) -> Tuple[Dict[FunctionNode, List[FunctionNode]], int]:
     """BFS from start, up to max_depth hops.
 
     Returns:
-        reached: {FunctionNode → path_of_qualnames} for every reached node.
-                 path_of_qualnames[0] is the start node's qualname;
+        reached: {FunctionNode → path_of_nodes} for every reached node.
+                 path_of_nodes[0] is the start node;
                  len(path) - 1 equals the number of hops.
         nodes_skipped_by_depth: count of unvisited children skipped because
                                  their parent was already at max_depth.
     """
     queue: deque = deque()
-    queue.append((start, [start[1]]))
+    queue.append((start, [start]))
     visited: set = {start}
-    reached: Dict[FunctionNode, List[str]] = {}
+    reached: Dict[FunctionNode, List[FunctionNode]] = {}
     nodes_skipped_by_depth = 0
 
     while queue:
@@ -237,7 +259,7 @@ def _bfs(
         for child in graph.get(node, set()):
             if child not in visited:
                 visited.add(child)
-                queue.append((child, path + [child[1]]))
+                queue.append((child, path + [child]))
 
     return reached, nodes_skipped_by_depth
 
@@ -271,7 +293,7 @@ def analyze_reachability(
         return
 
     # BFS from every entry point; accumulate best (shortest, then alphabetical) path
-    reachable_from: Dict[FunctionNode, Tuple[str, int, List[str]]] = {}
+    reachable_from: Dict[FunctionNode, Tuple[str, int, List[FunctionNode]]] = {}
     # ^ node → (ep_name, ep_idx, path)
     total_nodes_skipped = 0
 
@@ -321,13 +343,14 @@ def analyze_reachability(
         elif containing[1] == MODULE_LEVEL:
             finding.update(ReachabilityResult(state=MODULE_LEVEL_STATE).as_finding_fields())
         elif containing in reachable_from:
-            ep_name, ep_idx, path = reachable_from[containing]
-            path_truncated = len(path) > DISPLAY_DEPTH
+            ep_name, ep_idx, node_path = reachable_from[containing]
+            path_truncated = len(node_path) > DISPLAY_DEPTH
             finding.update(ReachabilityResult(
                 state=REACHABLE,
                 entry_point_name=ep_name,
-                path=path,
+                path=[qual for _file, qual in node_path],
                 path_truncated=path_truncated,
+                path_locations=_path_locations(node_path, lineno_index),
             ).as_finding_fields())
             finding_id = finding.get("finding_id")
             if finding_id is not None:
