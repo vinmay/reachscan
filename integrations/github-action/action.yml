@@ -1,0 +1,110 @@
+name: "reachscan"
+description: "Find what your AI agent or MCP server can execute, read, write, and send, and whether an LLM can reach it."
+author: "vinmay"
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  path:
+    description: "Path to scan, relative to the workspace."
+    required: false
+    default: "."
+  severity:
+    description: "Fail when a reachable finding meets this risk level: high, medium, or none."
+    required: false
+    default: "high"
+  sarif:
+    description: "Upload SARIF results to GitHub code scanning (needs security-events: write)."
+    required: false
+    default: "true"
+  version:
+    description: "reachscan version to install from PyPI, e.g. 0.2.0. Use 'latest' for the newest release."
+    required: false
+    default: "latest"
+  category:
+    description: "Code scanning category for the SARIF upload. Change it when running reachscan more than once per workflow."
+    required: false
+    default: "reachscan"
+  python-version:
+    description: "Python version used to run reachscan."
+    required: false
+    default: "3.12"
+
+outputs:
+  exit-code:
+    description: "reachscan exit code: 0 clean, 1 reachable finding at or above severity, 2 scan failure."
+    value: ${{ steps.scan.outputs.exit-code }}
+  sarif-file:
+    description: "Path to the SARIF file, when sarif is true."
+    value: ${{ steps.scan.outputs.sarif-file }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install reachscan
+      shell: bash
+      env:
+        REACHSCAN_VERSION: ${{ inputs.version }}
+      run: |
+        python -m pip install --quiet --upgrade pipx
+        if [ "$REACHSCAN_VERSION" = "latest" ]; then
+          spec="reachscan"
+        else
+          spec="reachscan==$REACHSCAN_VERSION"
+        fi
+        python -m pipx install --force "$spec"
+        echo "$(python -m pipx environment --value PIPX_BIN_DIR)" >> "$GITHUB_PATH"
+
+    - name: Run reachscan
+      id: scan
+      shell: bash
+      env:
+        SCAN_PATH: ${{ inputs.path }}
+        SEVERITY: ${{ inputs.severity }}
+        SARIF: ${{ inputs.sarif }}
+      run: |
+        set +e
+        if [ "$SARIF" = "true" ]; then
+          sarif_file="$RUNNER_TEMP/reachscan.sarif"
+          reachscan "$SCAN_PATH" --sarif --severity "$SEVERITY" > "$sarif_file"
+          code=$?
+          echo "sarif-file=$sarif_file" >> "$GITHUB_OUTPUT"
+          # Also print the human-readable report to the job log.
+          reachscan "$SCAN_PATH" --severity none
+        else
+          reachscan "$SCAN_PATH" --severity "$SEVERITY"
+          code=$?
+        fi
+        set -e
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        echo "reachscan exit code: $code"
+
+    - name: Upload SARIF
+      if: ${{ always() && inputs.sarif == 'true' && steps.scan.outputs.exit-code != '2' && steps.scan.outputs.exit-code != '' }}
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif-file }}
+        category: ${{ inputs.category }}
+
+    - name: Apply exit code
+      if: ${{ always() }}
+      shell: bash
+      env:
+        CODE: ${{ steps.scan.outputs.exit-code }}
+      run: |
+        if [ -z "$CODE" ]; then
+          echo "::error::reachscan did not run"
+          exit 2
+        fi
+        if [ "$CODE" = "1" ]; then
+          echo "::error::reachscan found reachable capabilities at or above the severity threshold"
+        elif [ "$CODE" = "2" ]; then
+          echo "::error::reachscan scan failed"
+        fi
+        exit "$CODE"

@@ -1,0 +1,56 @@
+name: Test action
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Scan clean fixture
+        id: reachscan
+        uses: ./
+        with:
+          path: fixtures/clean
+          category: reachscan-clean
+      - name: Expect exit code 0
+        run: test "${{ steps.reachscan.outputs.exit-code }}" = "0"
+
+  vulnerable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Scan vulnerable fixture
+        id: reachscan
+        uses: ./
+        continue-on-error: true
+        with:
+          path: fixtures/vulnerable
+          category: reachscan-vulnerable
+      - name: Expect the action to fail with exit code 1
+        run: |
+          test "${{ steps.reachscan.outcome }}" = "failure"
+          test "${{ steps.reachscan.outputs.exit-code }}" = "1"
+
+  no-sarif:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Scan vulnerable fixture without SARIF
+        id: reachscan
+        uses: ./
+        continue-on-error: true
+        with:
+          path: fixtures/vulnerable
+          sarif: "false"
+      - name: Expect failure with exit code 1 and no SARIF file
+        run: |
+          test "${{ steps.reachscan.outcome }}" = "failure"
+          test "${{ steps.reachscan.outputs.exit-code }}" = "1"
+          test -z "${{ steps.reachscan.outputs.sarif-file }}"
