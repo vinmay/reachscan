@@ -72,3 +72,13 @@ def test_mixed_reachable_and_unreachable_same_capability():
     ]
     risks = analyze_combined_capabilities(findings)
     assert any(r["id"] == "secret_leak" for r in risks)
+
+
+def test_no_entry_points_falls_back_to_all_capabilities():
+    """When no entry points were detected, reachability is unevaluated, so all capabilities count."""
+    findings = [
+        {"capability": "READ", "evidence": 'open("f")', "reachability": "no_entry_points"},
+        {"capability": "SEND", "evidence": "requests.post()", "reachability": "no_entry_points"},
+    ]
+    risks = analyze_combined_capabilities(findings)
+    assert any(r["id"] == "secret_leak" for r in risks)
