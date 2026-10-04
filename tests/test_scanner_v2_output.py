@@ -45,3 +45,31 @@ def test_scanner_detects_destructive_agent_risk(tmp_path: Path):
 
     report = scan_path(demo)
     assert any(risk["id"] == "destructive_agent" for risk in report["risks"])
+
+
+def test_scanner_combined_risks_ignore_unreachable_capabilities(tmp_path: Path):
+    """Combined risks run after reachability: an unreachable WRITE must not pair with a reachable SEND."""
+    (tmp_path / "server.py").write_text(
+        "\n".join(
+            [
+                "import requests",
+                "from mcp.server.fastmcp import FastMCP",
+                "",
+                'mcp = FastMCP("x")',
+                "",
+                "@mcp.tool()",
+                "def get(url: str) -> str:",
+                "    return requests.get(url).text",
+                "",
+                "def unused():",
+                '    open("out.txt", "w").write("y")',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = scan_path(tmp_path)
+    states = {e["finding"]["capability"]: e["finding"]["reachability"] for e in report["findings"]}
+    assert states.get("SEND") == "reachable"
+    assert states.get("WRITE") == "unreachable"
+    assert not any(risk["id"] == "data_exfiltration" for risk in report["risks"])

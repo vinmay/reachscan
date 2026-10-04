@@ -12,14 +12,17 @@ def _reachable_capability_set(findings: Iterable[Dict[str, Any]]) -> Set[str]:
 
     A finding is considered reachable if its reachability field is "reachable"
     or "module_level" (module-level code runs unconditionally).
-    Falls back to the full capability set when no reachability data is present.
+    Falls back to the full capability set when no reachability data is present,
+    including when no entry points were detected ("no_entry_points"), since
+    reachability could not be evaluated at all in that case.
     """
     reachable_states = {"reachable", "module_level"}
+    no_data_states = {None, "no_entry_points"}
     reachable_caps: Set[str] = set()
     has_reachability_data = False
     for f in findings:
         state = f.get("reachability")
-        if state is not None:
+        if state not in no_data_states:
             has_reachability_data = True
         cap = f.get("capability")
         if cap and state in reachable_states:

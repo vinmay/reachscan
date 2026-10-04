@@ -278,7 +278,6 @@ def scan_path(
 
     # aggregate capabilities
     capability_keys = sorted({entry["finding"]["capability"] for entry in findings if entry["finding"].get("capability")})
-    risks = analyze_combined_capabilities([entry["finding"] for entry in findings])
 
     # TypeScript/JavaScript entry point detection
     ts_entry_points = scan_ts_files(path)
@@ -295,6 +294,10 @@ def scan_path(
         graph=graph,
         lineno_index=lineno_idx,
     )
+
+    # Combined risks must run after reachability so they only fire on capabilities
+    # an LLM entry point can actually reach.
+    risks = analyze_combined_capabilities([entry["finding"] for entry in findings])
 
     # Language detection — only when no Python files found, to explain the gap
     other_languages = _detect_other_languages(path) if not py_files else []
