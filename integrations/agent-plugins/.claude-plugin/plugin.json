@@ -1,0 +1,14 @@
+{
+  "name": "reachscan",
+  "displayName": "reachscan",
+  "version": "0.1.0",
+  "description": "Vet an MCP server before you install it: see what each tool can execute, read, write, and send, using reachscan's static reachability analysis.",
+  "author": {
+    "name": "Vinmay Nair",
+    "url": "https://github.com/vinmay"
+  },
+  "homepage": "https://github.com/vinmay/reachscan",
+  "repository": "https://github.com/vinmay/reachscan",
+  "license": "Apache-2.0",
+  "keywords": ["mcp", "security", "static-analysis", "supply-chain"]
+}

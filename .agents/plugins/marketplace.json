@@ -1,0 +1,20 @@
+{
+  "name": "reachscan",
+  "interface": {
+    "displayName": "reachscan"
+  },
+  "plugins": [
+    {
+      "name": "reachscan",
+      "source": {
+        "source": "local",
+        "path": "./integrations/agent-plugins"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
