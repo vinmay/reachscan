@@ -71,13 +71,23 @@ The call graph follows up to 8 hops from each entry point. Call paths are shown 
 
 | Framework | Detection pattern |
 |---|---|
-| Pydantic AI | `@agent.tool`, `@agent.tool_plain` |
-| LangChain / CrewAI | `@tool`, `class MyTool(BaseTool)` |
-| OpenAI Agents SDK | `@function_tool` |
 | MCP (Python SDK / FastMCP) | `@mcp.tool()`, `@server.tool()` |
 | MCP (lowlevel server API) | `@app.call_tool()`, `@app.list_tools()` |
+| Pydantic AI | `@agent.tool`, `@agent.tool_plain` |
+| LangChain / CrewAI | `@tool`, `class MyTool(BaseTool)`, `StructuredTool` |
+| OpenAI Agents SDK | `@function_tool` |
 | Semantic Kernel | `@kernel_function` |
 | AutoGen | `@register_for_llm` |
+| LlamaIndex | `FunctionTool.from_defaults(fn=...)`, `QueryEngineTool.from_defaults(...)` |
+| DSPy | `dspy.Tool(func)` |
+| Google ADK | `Agent(tools=[...])` |
+| OpenAI Swarm | `Agent(functions=[...])` |
+| CAMEL AI | `FunctionTool(func)` |
+| smolagents, Strands, Haystack | `@tool` |
+| Agno / Phidata | `@tool`, `class MyTools(Toolkit)` |
+| Agency Swarm | `@function_tool` |
+| MetaGPT | `@register_tool()` |
+| Marvin | `@marvin.fn`, `@ai_model` |
 
 Framework attribution uses a confidence-graded resolution chain: direct imports are resolved at 0.95 confidence, inferred instance variables (e.g. `weather_agent = Agent[Deps, T](...)`) at 0.80, and unresolvable decorator names fall back to the best available label at 0.60.
 
@@ -154,13 +164,13 @@ You get file paths and line numbers. Not just "this repo uses subprocess" — yo
 
 ## Who needs this
 
-**Agent developers** — audit your own code before shipping. Know exactly what you're granting the LLM access to, and where those grants live in your codebase.
+**Agent developers** — audit your own code before shipping. Know exactly what you're granting the LLM access to, and where those grants live in your codebase. Add the [GitHub Action](#ci-integration) to catch new reachable capabilities in every pull request.
 
 **Security and platform teams** — you're deploying agents your developers wrote, or agents that use third-party frameworks. Before they hit production, run a scan. Get a fast, defensible answer to "what can this thing actually do?"
 
-**Anyone integrating third-party tools** — tools, plugins, and MCP servers come with capabilities attached. Scan them *before* wiring them into your agent. `reachscan https://github.com/some-org/some-tool` takes seconds and requires nothing installed on that repo.
+**Anyone integrating third-party tools** — tools, plugins, and MCP servers come with capabilities attached. Scan them *before* wiring them into your agent. `reachscan https://github.com/some-org/some-tool` takes seconds and requires nothing installed on that repo, or ask your coding agent to do it with the [Claude Code / Codex plugin](#use-it-from-claude-code-or-codex).
 
-**MCP server authors** — show your users exactly what your server can and cannot do. A clean scan result is a trust signal.
+**MCP server authors** — show your users exactly what your server can and cannot do. A clean scan result is a trust signal, and the [GitHub Action](#ci-integration) keeps it clean as the server changes.
 
 ---
 
@@ -188,6 +198,8 @@ Detection quality was validated in a structured false positive audit across 10 m
 
 Low noise by design. When it fires, it's real.
 
+This audit covers the Python detectors. The TypeScript/JavaScript detectors are newer and will get their own audit.
+
 ---
 
 ## What this is NOT
@@ -196,7 +208,7 @@ Low noise by design. When it fires, it's real.
 - Not a linter
 - Not a dependency checker
 - Not a compliance tool
-- Not a prompt injection detector *(planned)*
+- Not a prompt injection detector
 
 **It is a capability audit.** Static analysis only — results describe what the code is capable of, not what it will do in any given execution.
 
@@ -424,7 +436,17 @@ Static capability detection is the foundation. Reachability analysis on top of i
 
 ## Status
 
-Capability detection is stable. Reachability analysis is active — entry point detection covers all major Python agent frameworks and the call graph traversal handles projects of any size. TypeScript/JavaScript entry point detection is stable.
+What works today:
+
+| Area | Status |
+|---|---|
+| Python | Capability detection, entry points for the frameworks above, call-graph reachability (up to 8 hops) |
+| TypeScript / JavaScript | Parsed with tree-sitter (no Node.js needed). Entry point detection and capability detection for all seven classes. Reachability through TS call paths is in progress: until then, TS findings inside functions are reported as `unknown` |
+| Scan targets | Local paths, GitHub URLs, PyPI packages (`pypi:name[==version]`), MCP HTTP endpoints (`mcp+https://...`) |
+| Output | Text report, JSON ([schema v1](docs/schema_v1.md)), SARIF 2.1.0 with call chains, `--explain` call traces |
+| CI | [GitHub Action](https://github.com/marketplace/actions/reachscan) with Security tab upload and a severity gate; exit codes for any other CI |
+| Coding agents | [Plugin for Claude Code and Codex](#use-it-from-claude-code-or-codex) that vets MCP servers before you install them |
+| Precision | 0.47% false-positive rate across ~3,900 labeled Python findings ([details](#precision)); a TypeScript audit is planned |
 
 The JSON output schema is stable at v1 — see [`docs/schema_v1.md`](docs/schema_v1.md) for the full field reference. Feedback, edge cases, and false positive reports are especially valuable — open an issue.
 
