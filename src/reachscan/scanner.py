@@ -12,7 +12,8 @@ from reachscan.analysis.finding_enrichment import enrich_finding
 from reachscan.analysis.impact import analyze_combined_capabilities
 from reachscan.source_loader import ProgressCallback
 from reachscan.source_loader import resolve_target
-from reachscan.ts_entry_points import scan_ts_files, count_ts_files, TSEntryPoint
+from reachscan.ts_entry_points import analyze_ts_file, iter_ts_files
+from reachscan.ts_capabilities import scan_ts_capabilities
 from reachscan.py_entry_points import scan_py_files, EntryPoint as PyEntryPoint
 from reachscan.call_graph import build_call_graph
 from reachscan.reachability import analyze_reachability
@@ -281,20 +282,55 @@ def scan_path(
     if progress_callback and total_files == 0:
         progress_callback("analysis_scan", 100, "0/0 files")
 
+    py_findings = [entry["finding"] for entry in findings]
+
+    # TypeScript/JavaScript: one parse per file for entry points and capabilities
+    ts_files = iter_ts_files(path)
+    ts_entry_points = []
+    ts_capability_results = []
+    num_ts_files_unparsed = 0
+    for p in ts_files:
+        eps, root = analyze_ts_file(p)
+        ts_entry_points.extend(eps)
+        if root is None:
+            num_ts_files_unparsed += 1
+            continue
+        ts_capability_results.extend(scan_ts_capabilities(str(p), root))
+
+    # TS call paths aren't traced yet, so function-level TS findings are
+    # "unknown" when TS entry points exist (no_entry_points otherwise).
+    # Top-level TS code runs on import: module_level.
+    ts_function_state = "unknown" if ts_entry_points else "no_entry_points"
+    for result in ts_capability_results:
+        enriched = enrich_finding(_normalize_finding(result.finding))
+        finding_id, finding_ref = make_finding_id(
+            result.detector,
+            enriched.get("file", ""),
+            enriched.get("lineno", 0),
+            path,
+            enriched.get("evidence", ""),
+        )
+        enriched["finding_id"] = finding_id
+        enriched["finding_ref"] = finding_ref
+        enriched.update({
+            "reachability": ts_function_state if result.in_function else "module_level",
+            "entry_point_name": None,
+            "reachability_path": None,
+            "reachability_path_truncated": False,
+            "reachability_path_locations": None,
+        })
+        findings.append({"detector": result.detector, "finding": enriched})
+
     # aggregate capabilities
     capability_keys = sorted({entry["finding"]["capability"] for entry in findings if entry["finding"].get("capability")})
-
-    # TypeScript/JavaScript entry point detection
-    ts_entry_points = scan_ts_files(path)
-    num_ts_files_scanned = count_ts_files(path)
 
     # Python entry point detection
     py_entry_points = scan_py_files(path)
 
-    # Reachability analysis: build call graph and tag each finding
+    # Reachability analysis (Python findings only): build call graph and tag each finding
     graph, lineno_idx, _ = build_call_graph(py_files, path)
     analyze_reachability(
-        findings=[entry["finding"] for entry in findings],
+        findings=py_findings,
         py_entry_points=py_entry_points,
         graph=graph,
         lineno_index=lineno_idx,
@@ -313,7 +349,8 @@ def scan_path(
         "findings": findings,
         "capabilities": capability_keys,
         "risks": risks,
-        "num_ts_files_scanned": num_ts_files_scanned,
+        "num_ts_files_scanned": len(ts_files),
+        "num_ts_files_unparsed": num_ts_files_unparsed,
         "ts_entry_points": [ep.as_dict() for ep in ts_entry_points],
         "py_entry_points": [ep.as_dict() for ep in py_entry_points],
         "other_languages": other_languages,

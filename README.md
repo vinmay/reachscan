@@ -25,7 +25,7 @@ It analyzes Python and TypeScript/JavaScript code and reports the actual capabil
 
 ## What it detects
 
-Seven capability classes, built from AST analysis and pattern matching:
+Seven capability classes, built from AST analysis of Python and TypeScript/JavaScript code:
 
 | Capability | What it means |
 |---|---|
@@ -37,7 +37,7 @@ Seven capability classes, built from AST analysis and pattern matching:
 | `DYNAMIC` | eval, exec, dynamic imports |
 | `AUTONOMY` | Background tasks, schedulers, self-directed execution |
 
-Cross-capability risks are also flagged — READ + SEND detected together raises a data exfiltration flag. SECRETS + SEND raises a credential leak flag.
+Cross-capability risks are also flagged when both capabilities are reachable: READ + SEND (secret leakage), SEND + WRITE (data exfiltration), EXECUTE + SEND (remote control), and EXECUTE + destructive WRITE (destructive agent).
 
 ---
 
@@ -90,7 +90,9 @@ Python entry points feed into the reachability pass — the call graph is traced
 
 Registration calls are matched however they're formatted. Declaration files (`.d.ts`), test files, minified bundles, and `node_modules`/`dist`/`build` directories are automatically excluded.
 
-**Current limitation:** TypeScript and JavaScript function bodies are not capability-analyzed — only entry points are detected. When a project mixes Python and TypeScript, capability findings come from the Python side and TypeScript entry points are listed separately in the report.
+TypeScript and JavaScript code is also analyzed for capabilities: `child_process` and `execa` (EXECUTE), `fs` and `fs/promises` (READ/WRITE), `fetch`, `axios`, `got`, `undici`, `http(s)`, `net`, and WebSockets (SEND), `process.env`, `dotenv`, and `keytar` (SECRETS), `eval`, `new Function`, `vm`, and non-literal `import()`/`require()` (DYNAMIC), and `setInterval`, cron libraries, and worker threads (AUTONOMY). Imports are resolved first, so `regex.exec()` or a local `exec` helper isn't mistaken for `child_process.exec`.
+
+**Current limitation:** TypeScript call paths aren't traced yet. TypeScript findings inside functions are reported as `unknown` (or `no_entry_points` when no TS entry points exist), and top-level code that runs on import is reported as `module_level`. Unknown findings don't affect the exit code and are left out of SARIF by default. Python reachability is unaffected.
 
 ---
 

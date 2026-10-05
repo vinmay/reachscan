@@ -37,6 +37,8 @@ def _render_finding(item: dict, lines: List[str], show_path: bool, show_state_pr
             state_prefix = "UNKNOWN  "
         elif state == "module_level":
             state_prefix = "MODULE_LEVEL  "
+        elif state == "no_entry_points":
+            state_prefix = "NO_ENTRY_POINTS  "
 
     lines.append(
         f"  [{risk_level}] {state_prefix}{finding.get('capability')} via {finding.get('evidence')} "
@@ -117,6 +119,7 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
         unreachable   = [f for f in findings if f["finding"].get("reachability") == "unreachable"]
         module_level  = [f for f in findings if f["finding"].get("reachability") == "module_level"]
         unknown       = [f for f in findings if f["finding"].get("reachability") == "unknown"]
+        no_entry      = [f for f in findings if f["finding"].get("reachability") == "no_entry_points"]
 
         # Reachability Summary
         lines += ["Reachability Summary", "-" * 20]
@@ -125,7 +128,12 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
         if module_level:
             lines.append(f"  {len(module_level):>4} module-level  — execute on import, not on any call path")
         if unknown:
-            lines.append(f"  {len(unknown):>4} unknown       — unresolvable (dynamic dispatch or parse failure)")
+            lines.append(
+                f"  {len(unknown):>4} unknown       — reachability not determined "
+                "(dynamic dispatch, parse failure, or TypeScript call paths, not traced yet)"
+            )
+        if no_entry:
+            lines.append(f"  {len(no_entry):>4} no entry points — no LLM entry points detected for this code")
         lines.append("")
 
         # Reachable Findings
@@ -138,7 +146,7 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
         lines.append("")
 
         # Other Findings (only if any)
-        other = unreachable + module_level + unknown
+        other = unreachable + module_level + unknown + no_entry
         if other:
             lines += ["Other Findings  —  not on LLM call path", "-" * 41]
             for item in other:
@@ -184,8 +192,8 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
     if results.get("num_files_scanned", 0) == 0:
         other_languages = results.get("other_languages", [])
         if ts_entry_points:
-            lines.append("⚠  Full capability analysis requires Python source.")
-            lines.append("   TypeScript function bodies are not yet analyzed.")
+            lines.append("⚠  TypeScript call paths are not traced yet.")
+            lines.append("   Findings show what the TypeScript code can do, not which tool reaches it.")
             lines.append("   Entry points above show what the LLM can call.")
         elif ts_files_scanned > 0:
             lines.append(
@@ -201,9 +209,20 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
             )
             lines.append(f"No Python or TypeScript files were found for analysis.")
             lines.append(f"Detected: {lang_summary}")
-            lines.append("reachscan currently supports Python (full analysis) and TypeScript (entry points).")
+            lines.append(
+                "reachscan currently supports Python (full analysis) and TypeScript/JavaScript "
+                "(entry points and capabilities)."
+            )
         else:
             lines.append("No Python or TypeScript files were found for analysis.")
+        lines.append("")
+
+    ts_unparsed = int(results.get("num_ts_files_unparsed", 0) or 0)
+    if ts_unparsed:
+        lines.append(
+            f"Note: {ts_unparsed} TypeScript/JavaScript file(s) couldn't be parsed; "
+            "their capabilities weren't analyzed."
+        )
         lines.append("")
 
     lines.append("Static analysis only: this report reflects code patterns, not runtime behavior or exploitability.")
