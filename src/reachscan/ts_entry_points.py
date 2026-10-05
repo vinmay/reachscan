@@ -542,6 +542,31 @@ def _iter_ts_files(root: Path) -> List[Path]:
     return files
 
 
+def iter_ts_files(root: Path) -> List[Path]:
+    """Eligible TypeScript/JavaScript files under root (same filtering as scan_ts_files)."""
+    return _iter_ts_files(Path(root))
+
+
+def analyze_ts_file(path: Path):
+    """Parse one file once and detect its entry points.
+
+    Returns (entry_points, root_node). root_node is the tree-sitter root for
+    further analysis, or None when the file couldn't be read or parsed (entry
+    points then come from the regex fallback, flagged fallback=True).
+    """
+    try:
+        content = path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return [], None
+    tree = parse_ts(str(path), content)
+    if tree is None:
+        results = _detect_regex(str(path), content)
+        for ep in results:
+            ep.fallback = True
+        return results, None
+    return _detect_tree_sitter(str(path), tree.root_node), tree.root_node
+
+
 def _scan_one(path: Path, results: List[TSEntryPoint]) -> None:
     """Read one file and append findings to results. Silently skips unreadable files."""
     try:
