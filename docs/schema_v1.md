@@ -122,12 +122,12 @@ Each element of `annotation_mismatches` describes one false claim: an explicitly
 | Field | Type | Description |
 |-------|------|-------------|
 | `rule_id` | `string` | Always `"mcp-risk-mismatch"` (also the SARIF rule id) |
-| `rule` | `string` | `read_only_contradicted` (readOnlyHint true + reachable WRITE/EXECUTE/DYNAMIC), `closed_world_contradicted` (openWorldHint false + reachable SEND), or `non_destructive_contradicted` (destructiveHint false, with readOnlyHint false, + reachable delete, move/rename, or truncating write) |
+| `rule` | `string` | `read_only_contradicted` (readOnlyHint true + reachable WRITE/EXECUTE/DYNAMIC), `closed_world_contradicted` (openWorldHint false + a reachable outbound HTTP, websocket, or raw socket connect not to a literal loopback host; project-module calls, database drivers, and other protocol clients don't count), or `non_destructive_contradicted` (destructiveHint false, with readOnlyHint false, + reachable delete, move/rename, or truncating write) |
 | `risk_level` | `string` | `"high"` for read_only / closed_world, `"medium"` for non_destructive |
 | `tool` | `string` | MCP tool name |
 | `entry_point` | `object` | `{name, file, lineno, dispatch}`. `dispatch` is `"decorator"` (FastMCP) or `"lowlevel"` (a `types.Tool` linked to its branch in the `call_tool` handler) |
 | `declared` | `object` | `{hint, value}`, e.g. `{"hint": "readOnlyHint", "value": true}` |
-| `observed` | `object` | `{capability, evidence, file, lineno, finding_id}`; `finding_id` matches an entry in `findings` |
+| `observed` | `object` | `{capability, evidence, file, lineno, finding_id}`, plus `send_kind` (`"HTTP"`, `"websocket"`, or `"socket"`) for `closed_world_contradicted`; `finding_id` matches an entry in `findings` |
 | `reachability_path` | `array<string>` | Call chain from the tool's entry point to the function containing the sink |
 | `additional_observations` | `array` | Other contradicting sinks for the same tool and rule: `{capability, evidence, file, lineno, finding_id, reachability_path}` |
 | `message` | `string` | Human-readable summary |

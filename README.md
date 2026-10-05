@@ -119,7 +119,7 @@ MCP tools can declare [`ToolAnnotations`](https://modelcontextprotocol.io/specif
 | Declared | Contradicted by a reachable... | Severity |
 |---|---|---|
 | `readOnlyHint: true` | WRITE, EXECUTE, or DYNAMIC | high |
-| `openWorldHint: false` | SEND (HTTP, sockets, WebSockets; not a project's own `connect()` wrapper or a database driver) | high |
+| `openWorldHint: false` | outbound HTTP, websocket, or raw socket connect (not to a literal loopback host such as `localhost` or `127.0.0.1`; calls into the project's own modules, database drivers, and other protocol clients don't count) | high |
 | `destructiveHint: false` (with `readOnlyHint: false`) | delete, move/rename, or truncating write | medium |
 
 ```text

@@ -354,7 +354,7 @@ def scan_path(
 
     # MCP annotation claims contradicted by capabilities reachable from that tool
     annotation_mismatches, linkage = find_annotation_mismatches(
-        py_findings, py_entry_points, reach_index, graph, lineno_idx
+        py_findings, py_entry_points, reach_index, graph, lineno_idx, project_root=path
     )
 
     # Combined risks must run after reachability so they only fire on capabilities

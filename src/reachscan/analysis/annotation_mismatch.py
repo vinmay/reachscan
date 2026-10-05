@@ -7,7 +7,8 @@ reported when a tool explicitly declares a hint and a call path from that
 specific tool's entry point reaches a capability that contradicts it:
 
   read_only_contradicted     readOnlyHint: true    + reachable WRITE, EXECUTE, or DYNAMIC   high
-  closed_world_contradicted  openWorldHint: false  + reachable SEND                        high
+  closed_world_contradicted  openWorldHint: false  + reachable outbound HTTP, websocket,
+                             or raw socket connect (not to a literal loopback host)   high
   non_destructive_contradicted
                              destructiveHint: false + reachable destructive WRITE
                              (delete, move/rename, truncating write)                    medium
@@ -44,6 +45,7 @@ import ast
 import hashlib
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -80,20 +82,117 @@ def is_destructive_write(evidence: str) -> bool:
     return any(p.search(evidence or "") for p in _DESTRUCTIVE_WRITE_PATTERNS)
 
 
-# The Python network detector flags any `<x>.connect()` / `create_connection()`
-# / `socket()` call as SEND. For a closed-world claim that's weak evidence: a
-# project's own wrapper (e.g. a loopback bridge client) or a database driver's
-# connect() doesn't show the tool reaching an open world. Only count those
-# calls when they come from a real socket or WebSocket module.
-_GENERIC_CONNECT = re.compile(r"(^|\.)(connect|create_connection|socket)$")
-_SOCKET_MODULE_ROOTS = {"socket", "ssl", "websocket", "websockets", "asyncio"}
+# openWorldHint: false is contradicted only by outbound sends of these kinds
+# (V decision, 2026-10-05):
+#   HTTP       requests, httpx, aiohttp, urllib, urllib3, http, or an http(s):// URL
+#   websocket  websocket, websockets, or a ws(s):// URL
+#   socket     raw socket connects (socket/ssl/asyncio), except to a literal
+#              loopback host (localhost, 127.0.0.0/8, ::1)
+# Excluded: calls resolving to the project's own modules (a project wrapper's
+# .connect() isn't evidence; library calls inside it are separate findings),
+# database drivers, and other protocol clients, whose connections are the
+# tool's configured, closed domain under the spec's open/closed-world wording.
+_HTTP_ROOTS = {"requests", "httpx", "aiohttp", "urllib", "urllib3", "http"}
+_WEBSOCKET_ROOTS = {"websocket", "websockets"}
+_SOCKET_ROOTS = {"socket", "ssl", "asyncio"}
+_SOCKET_CONNECT_CALLS = {"create_connection", "open_connection", "connect"}
 
 
-def is_open_world_send(evidence: str) -> bool:
-    evidence = evidence or ""
-    if _GENERIC_CONNECT.search(evidence):
-        return evidence.split(".", 1)[0] in _SOCKET_MODULE_ROOTS
-    return True
+def _is_loopback(host: str) -> bool:
+    import ipaddress
+    host = host.strip().strip("[]").lower()
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+@lru_cache(maxsize=256)
+def _parse_file(path: str):
+    try:
+        return ast.parse(Path(path).read_text(encoding="utf-8", errors="ignore"))
+    except (SyntaxError, ValueError, OSError):
+        return None
+
+
+def _socket_host_literal(file: str, lineno: Optional[int], call_name: str) -> Optional[str]:
+    """The literal host argument of a socket connect call at file:lineno, if any."""
+    tree = _parse_file(file)
+    if tree is None or lineno is None:
+        return None
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and getattr(node, "lineno", None) == lineno):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+        if name != call_name:
+            continue
+        candidates = list(node.args[:1]) + [kw.value for kw in node.keywords
+                                            if kw.arg in ("host", "address")]
+        for arg in candidates:
+            if isinstance(arg, ast.Tuple) and arg.elts:
+                arg = arg.elts[0]
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                return arg.value
+    return None
+
+
+def _root_is_project_module(file: str, root: str, project_root: Optional[Path]) -> bool:
+    """True when `root` in this file is imported from a module inside the project."""
+    if project_root is None:
+        return False
+    tree = _parse_file(file)
+    if tree is None:
+        return False
+    from reachscan.call_graph import _resolve_module_to_file
+    current = Path(file).resolve()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if (alias.asname or alias.name.split(".")[0]) == root:
+                    if _resolve_module_to_file(alias.name, project_root, current, 0):
+                        return True
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if (alias.asname or alias.name) == root:
+                    module = ".".join(p for p in (node.module or "", alias.name) if p)
+                    if _resolve_module_to_file(module, project_root, current, node.level) or \
+                            _resolve_module_to_file(node.module or "", project_root, current, node.level):
+                        return True
+    return False
+
+
+def outbound_send_kind(finding: dict, project_root: Optional[Path] = None) -> Optional[str]:
+    """Classify a SEND finding for the openWorldHint rule: "HTTP", "websocket", "socket", or None."""
+    evidence = finding.get("evidence") or ""
+    base, _, target = evidence.partition(" -> ")
+    parts = base.split(".")
+    root = parts[0]
+    file = finding.get("file") or ""
+
+    if root in _HTTP_ROOTS | _WEBSOCKET_ROOTS | _SOCKET_ROOTS:
+        if file and _root_is_project_module(file, root, project_root):
+            return None  # a project module shadowing a library name
+        if root in _HTTP_ROOTS:
+            return "HTTP"
+        if root in _WEBSOCKET_ROOTS:
+            return "websocket"
+        call = parts[-1]
+        if call not in _SOCKET_CONNECT_CALLS:
+            return None  # e.g. socket.socket(): creating a socket isn't an outbound connect
+        host = _socket_host_literal(file, finding.get("lineno"), call)
+        if host is not None and _is_loopback(host):
+            return None
+        return "socket"
+
+    url = target.strip().lower()
+    if url.startswith(("http://", "https://")):
+        return "HTTP"
+    if url.startswith(("ws://", "wss://")):
+        return "websocket"
+    return None
 
 
 @dataclass
@@ -121,14 +220,17 @@ class LinkageStats:
 # Rules
 # ---------------------------------------------------------------------------
 
-def _contradictions(annotations: ToolAnnotationInfo, capability: str, evidence: str):
-    """Yield (rule, hint, declared value, risk level) for each rule this sink breaks."""
+def _contradictions(annotations: ToolAnnotationInfo, capability: str, evidence: str,
+                    send_kind: Optional[str] = None):
+    """Yield (rule, hint, declared value, risk level) for each rule this sink breaks.
+
+    send_kind is the outbound_send_kind() of a SEND sink (None if excluded).
+    """
     ro = annotations.read_only
     if ro.source == EXPLICIT and ro.value is True and capability in _READ_ONLY_CONTRADICTIONS:
         yield RULE_READ_ONLY, "readOnlyHint", True, "high"
     ow = annotations.open_world
-    if ow.source == EXPLICIT and ow.value is False and capability == "SEND" \
-            and is_open_world_send(evidence):
+    if ow.source == EXPLICIT and ow.value is False and capability == "SEND" and send_kind:
         yield RULE_CLOSED_WORLD, "openWorldHint", False, "high"
     de = annotations.destructive
     if (
@@ -139,8 +241,11 @@ def _contradictions(annotations: ToolAnnotationInfo, capability: str, evidence: 
         yield RULE_NON_DESTRUCTIVE, "destructiveHint", False, "medium"
 
 
-def _message(tool: str, hint: str, value: bool, capability: str, evidence: str) -> str:
+def _message(tool: str, hint: str, value: bool, capability: str, evidence: str,
+             send_kind: Optional[str] = None) -> str:
     claim = f"{hint}: {str(value).lower()}"
+    if hint == "openWorldHint" and send_kind:
+        return f"Tool '{tool}' declares {claim}; reaches outbound {send_kind} call: {evidence}."
     return f"Tool '{tool}' declares {claim}, but a call path from the tool reaches {capability} via {evidence}."
 
 
@@ -355,8 +460,13 @@ def find_annotation_mismatches(
     index: ReachabilityIndex,
     graph: CallGraph,
     lineno_index: LinenoIndex,
+    project_root: Optional[Path] = None,
 ) -> Tuple[List[dict], LinkageStats]:
     """Return (mismatch dicts, lowlevel linkage stats)."""
+    if project_root is not None:
+        project_root = Path(project_root).resolve()
+        if project_root.is_file():
+            project_root = project_root.parent
     stats = LinkageStats()
     targets = _decorator_targets(py_entry_points, index)
     targets += _lowlevel_targets(py_entry_points, index, graph, lineno_index, stats)
@@ -374,11 +484,14 @@ def find_annotation_mismatches(
                 continue
             capability = finding.get("capability", "")
             evidence = finding.get("evidence", "")
-            for rule, hint, value, risk in _contradictions(target.annotations, capability, evidence):
+            send_kind = outbound_send_kind(finding, project_root) if capability == "SEND" else None
+            for rule, hint, value, risk in _contradictions(target.annotations, capability, evidence,
+                                                           send_kind):
                 path_nodes = target.reach[node]
                 ep = target.entry_point
                 observation = {
                     "capability": capability,
+                    **({"send_kind": send_kind} if rule == RULE_CLOSED_WORLD else {}),
                     "evidence": evidence,
                     "file": finding.get("file"),
                     "lineno": finding.get("lineno"),
@@ -404,6 +517,7 @@ def find_annotation_mismatches(
                     "declared": {"hint": hint, "value": value},
                     "observed": {
                         "capability": capability,
+                        **({"send_kind": send_kind} if rule == RULE_CLOSED_WORLD else {}),
                         "evidence": evidence,
                         "file": finding.get("file"),
                         "lineno": finding.get("lineno"),
@@ -412,7 +526,7 @@ def find_annotation_mismatches(
                     "reachability_path": [qual for _file, qual in path_nodes],
                     "reachability_path_locations": _path_locations(path_nodes, lineno_index),
                     "_locations_by_finding": {},
-                    "message": _message(target.tool, hint, value, capability, evidence),
+                    "message": _message(target.tool, hint, value, capability, evidence, send_kind),
                     "mismatch_id": hashlib.sha1(
                         f"{target.tool}|{ep.file}|{rule}".encode()
                     ).hexdigest()[:12],
@@ -431,7 +545,7 @@ def find_annotation_mismatches(
             m["observed"] = {k: v for k, v in best.items() if k != "reachability_path"}
             m["reachability_path"] = best["reachability_path"]
             m["message"] = _message(m["tool"], m["declared"]["hint"], m["declared"]["value"],
-                                    best["capability"], best["evidence"])
+                                    best["capability"], best["evidence"], best.get("send_kind"))
             m["reachability_path_locations"] = m["_locations_by_finding"][best["finding_id"]]
         m["additional_observations"] = candidates[1:]
         m.pop("_locations_by_finding", None)
@@ -470,5 +584,6 @@ __all__ = [
     "RULE_NON_DESTRUCTIVE",
     "find_annotation_mismatches",
     "is_destructive_write",
+    "outbound_send_kind",
     "unresolvable_annotations",
 ]

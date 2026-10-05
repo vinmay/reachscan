@@ -7,7 +7,7 @@ from pathlib import Path
 import jsonschema
 import pytest
 
-from reachscan.analysis.annotation_mismatch import is_destructive_write, is_open_world_send
+from reachscan.analysis.annotation_mismatch import is_destructive_write, outbound_send_kind
 from reachscan.cli import main
 from reachscan.reporters.json_reporter import json_report
 from reachscan.reporters.sarif_reporter import build_sarif
@@ -113,12 +113,55 @@ def test_unresolvable_annotation_reference_produces_no_mismatch(tmp_path):
 
 
 def test_closed_world_tool_reaching_http_is_high(tmp_path):
-    mm = _mismatches(tmp_path, '''
+    report = scan_path(_project(tmp_path, '''
         @mcp.tool(annotations=ToolAnnotations(openWorldHint=False))
         def lookup(q: str):
             return requests.get("https://api.example.com/search", params={"q": q})
-    ''')
+    '''))
+    mm = report["annotation_mismatches"]
     assert _summary(mm) == [("lookup", "closed_world_contradicted", "high")]
+    assert mm[0]["observed"]["send_kind"] == "HTTP"
+    assert mm[0]["message"] == (
+        "Tool 'lookup' declares openWorldHint: false; reaches outbound HTTP call: "
+        + mm[0]["observed"]["evidence"] + "."
+    )
+    out = human_report(report)
+    assert "declares openWorldHint: false" in out
+    assert "reaches outbound HTTP call: requests.get" in out
+
+
+SOCKET_HEADER = HEADER + "import socket\nimport websockets\nimport psycopg2\n"
+
+
+@pytest.mark.parametrize("call,expected_kind", [
+    ('socket.create_connection(("api.example.com", 443))', "socket"),
+    ("socket.create_connection((host, 443))", "socket"),          # non-literal host counts
+    ('socket.create_connection(("127.0.0.1", 8080))', None),       # literal loopback
+    ('socket.create_connection(("127.8.9.10", 8080))', None),      # 127.0.0.0/8
+    ('socket.create_connection(("localhost", 8080))', None),
+    ('socket.create_connection(("::1", 8080))', None),
+    ("socket.socket()", None),                                    # not an outbound connect
+    ('websockets.connect("wss://stream.example.com")', "websocket"),
+    ('psycopg2.connect("dbname=prod host=db.example.com")', None),  # DB driver: closed domain
+])
+def test_closed_world_send_kinds(tmp_path, call, expected_kind):
+    mm = _mismatches(tmp_path, f'''
+        @mcp.tool(annotations=ToolAnnotations(openWorldHint=False))
+        def talk(host: str = "x"):
+            return {call}
+    ''', header=SOCKET_HEADER)
+    kinds = [m["observed"].get("send_kind") for m in mm]
+    assert kinds == ([expected_kind] if expected_kind else [])
+
+
+def test_closed_world_ignores_project_module_shadowing_a_library_name(tmp_path):
+    (tmp_path / "http.py").write_text("def post(url):\n    return url\n", encoding="utf-8")
+    header = HEADER + "import http\n"
+    assert _mismatches(tmp_path, '''
+        @mcp.tool(annotations=ToolAnnotations(openWorldHint=False))
+        def notify():
+            return http.post("x")
+    ''', header=header) == []
 
 
 def test_closed_world_ignores_project_wrapper_connect(tmp_path):
@@ -467,8 +510,17 @@ def test_is_destructive_write(evidence, expected):
 
 
 @pytest.mark.parametrize("evidence,expected", [
-    ("requests.get", True), ("httpx.post", True), ("socket.create_connection", True),
-    ("websockets.connect", True), ("bridge_client.connect", False), ("psycopg2.connect", False),
+    ("requests.get", "HTTP"),
+    ("requests.Session.post", "HTTP"),
+    ("httpx.AsyncClient", "HTTP"),
+    ("urllib.request.urlopen", "HTTP"),
+    ("session.mount -> https://", "HTTP"),       # client variable with an http(s) URL
+    ("websocket.create_connection", "websocket"),
+    ("client.send -> wss://feed.example.com", "websocket"),
+    ("bridge_client.connect", None),              # project wrapper / unknown object
+    ("psycopg2.connect", None),                   # database driver
+    ("paramiko.SSHClient.connect", None),         # other protocol client
+    ("socket.socket", None),                      # creating a socket isn't a connect
 ])
-def test_is_open_world_send(evidence, expected):
-    assert is_open_world_send(evidence) is expected
+def test_outbound_send_kind_from_evidence(evidence, expected):
+    assert outbound_send_kind({"evidence": evidence}) == expected

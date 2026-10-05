@@ -104,10 +104,11 @@ def _render_annotation_mismatches(results: Dict[str, Any], lines: List[str], exp
         observed = m["observed"]
         claim = f"{declared['hint']}: {str(declared['value']).lower()}"
         lines.append(f"  [{m['risk_level'].upper()}] {m['tool']} declares {claim}")
-        lines.append(
-            f"    but reaches {observed['capability']} via {observed['evidence']} "
-            f"({_location(observed['file'], observed['lineno'])})"
-        )
+        where = _location(observed['file'], observed['lineno'])
+        if observed.get("send_kind"):
+            lines.append(f"    reaches outbound {observed['send_kind']} call: {observed['evidence']} ({where})")
+        else:
+            lines.append(f"    but reaches {observed['capability']} via {observed['evidence']} ({where})")
         if explain:
             lines.append("    call chain:")
             lines.append("      " + _format_path(m["reachability_path"], False, explain=True)
