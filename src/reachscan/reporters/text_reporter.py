@@ -1,5 +1,7 @@
 from typing import Dict, Any, List
 
+from reachscan.analysis.impact import risk_counted_findings
+
 
 def _format_path(path: list, truncated: bool, explain: bool = False) -> str:
     if not path:
@@ -70,21 +72,18 @@ _MAX_LISTED_FILES = 10
 def _module_level_only_files(risk: dict, findings: list) -> List[str]:
     """Files behind a combined risk that comes only from module-level code.
 
-    Returns the sorted files of the module_level findings for the risk's
-    capabilities when none of those capabilities has a reachable finding.
-    Returns [] otherwise, including when reachability wasn't evaluated (the
-    risk then reflects capability presence, not module-level code).
+    Looks at the findings that count toward the risk's capabilities (same rule
+    as analysis.impact). Returns their sorted files when every one of them is
+    module_level, and [] otherwise.
     """
-    states = {item["finding"].get("reachability") for item in findings}
-    if not states - {None, "no_entry_points"}:
-        return []
     caps = set(risk.get("capabilities_triggered", []))
-    relevant = [item["finding"] for item in findings if item["finding"].get("capability") in caps]
-    if any(f.get("reachability") == "reachable" for f in relevant):
+    counted = [
+        f for f in risk_counted_findings(item["finding"] for item in findings)
+        if f.get("capability") in caps
+    ]
+    if not counted or any(f.get("reachability") != "module_level" for f in counted):
         return []
-    return sorted({
-        str(f.get("file", "unknown")) for f in relevant if f.get("reachability") == "module_level"
-    })
+    return sorted({str(f.get("file", "unknown")) for f in counted})
 
 
 def human_report(results: Dict[str, Any], explain: bool = False) -> str:
