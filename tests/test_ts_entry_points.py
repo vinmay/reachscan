@@ -8,6 +8,28 @@ from reachscan.ts_entry_points import (
     count_ts_files,
     _is_excluded_ts_file,
 )
+import reachscan.ts_entry_points as ts_mod
+
+
+@pytest.fixture(autouse=True, params=["tree_sitter", "regex"])
+def detection_path(request, monkeypatch):
+    """Run every test on both detection paths.
+
+    tree_sitter: parsing must succeed (no silent fallback to regex).
+    regex:       parsing is forced to fail, exercising the fallback detector.
+    """
+    if request.param == "regex":
+        monkeypatch.setattr(ts_mod, "parse_ts", lambda path, content: None)
+    else:
+        real_parse = ts_mod.parse_ts
+
+        def strict_parse(path, content):
+            tree = real_parse(path, content)
+            assert tree is not None, f"tree-sitter could not parse {path}"
+            return tree
+
+        monkeypatch.setattr(ts_mod, "parse_ts", strict_parse)
+    return request.param
 
 
 # ---------------------------------------------------------------------------

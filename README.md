@@ -77,7 +77,7 @@ Python entry points feed into the reachability pass — the call graph is traced
 
 ### Entry point detection — TypeScript and JavaScript
 
-`reachscan` scans `.ts`, `.js`, `.mts`, `.mjs`, `.cts`, and `.cjs` files using regex-based pattern matching. No Node.js runtime is required.
+`reachscan` parses `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.mjs`, `.cts`, and `.cjs` files with [tree-sitter](https://tree-sitter.github.io/), using prebuilt Python wheels, so no Node.js runtime is required. Comments and strings don't produce entry points. If a file can't be parsed (for example, TypeScript syntax newer than the bundled grammar), reachscan falls back to regex matching for that file.
 
 | Pattern | What it detects | Confidence |
 |---|---|---|
@@ -88,7 +88,7 @@ Python entry points feed into the reachability pass — the call graph is traced
 | `langchain_tool` | `new DynamicTool({ name: "...", ... })` | 0.85 |
 | `mcp_handler` | `server.setRequestHandler(Schema, ...)` | 0.80 |
 
-Both same-line and multi-line registration styles are handled for each pattern. Declaration files (`.d.ts`), test files, minified bundles, and `node_modules`/`dist`/`build` directories are automatically excluded.
+Registration calls are matched however they're formatted. Declaration files (`.d.ts`), test files, minified bundles, and `node_modules`/`dist`/`build` directories are automatically excluded.
 
 **Current limitation:** TypeScript and JavaScript function bodies are not capability-analyzed — only entry points are detected. When a project mixes Python and TypeScript, capability findings come from the Python side and TypeScript entry points are listed separately in the report.
 

@@ -1,9 +1,11 @@
 """
 TypeScript/JavaScript entry point detector for reachscan.
 
-Detects functions exposed to LLMs in .ts and .js source files using
-regex-based pattern matching. Does NOT perform full TypeScript AST analysis —
-reachscan intentionally avoids requiring a Node.js runtime dependency.
+Detects functions exposed to LLMs in TypeScript and JavaScript source files
+(.ts .tsx .mts .cts .js .jsx .mjs .cjs). Files are parsed with tree-sitter
+(prebuilt Python wheels, no Node.js runtime). When a file can't be parsed
+cleanly, detection falls back to the original regex patterns for that file and
+the resulting entry points are flagged with ``fallback=True``.
 
 Coverage (v1):
   mcp_tool            — server.tool("name", schema, handler)       [MCP SDK]
@@ -17,7 +19,7 @@ Known limitations (document these, don't hide them):
   - Dynamic registration (variable tool names) is not detected
   - Minified/bundled code (.min.js) is not analyzed
   - TypeScript function bodies are not capability-analyzed, only entry points
-  - Template literal tool names (`tool-${var}`) are not detected
+  - Template literal tool names with substitutions (`tool-${var}`) are not detected
 """
 
 from __future__ import annotations
@@ -26,6 +28,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
+
+from reachscan.ts_parser import (
+    iter_nodes,
+    node_text,
+    object_pairs,
+    parse_ts,
+    string_value,
+)
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -37,8 +47,11 @@ class TSEntryPoint:
     name: str           # Tool name if extractable; schema name for handlers; "unknown" otherwise
     file: str           # Absolute file path
     lineno: int         # 1-based line number of the registration statement
-    pattern_type: str   # "mcp_tool" | "mcp_handler" | "langchain_tool"
+    pattern_type: str   # "mcp_tool" | "mcp_handler" | "mcp_tool_definition" | "langchain_tool"
     confidence: float   # Detection confidence 0.0–1.0
+    # True when the file could not be parsed with tree-sitter and the regex
+    # fallback produced this entry point. Internal: not part of the JSON schema.
+    fallback: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -54,7 +67,7 @@ class TSEntryPoint:
 # File filtering
 # ---------------------------------------------------------------------------
 
-_TS_EXTENSIONS = frozenset({".ts", ".js", ".mts", ".mjs", ".cts", ".cjs"})
+_TS_EXTENSIONS = frozenset({".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cts", ".cjs"})
 
 # Directory components that mean "don't scan this" for TypeScript repos.
 _EXCLUDED_TS_DIR_PARTS = frozenset({
@@ -177,13 +190,125 @@ def detect_ts_entry_points(file_path: str, content: str) -> List[TSEntryPoint]:
     """
     Scan a single TypeScript/JavaScript file's content for LLM entry points.
 
+    Parses with tree-sitter; if the file can't be parsed cleanly, falls back to
+    regex detection and marks each result with ``fallback=True``.
+
     Args:
-        file_path: Path string used for reporting (typically absolute).
+        file_path: Path string used for reporting (typically absolute). Its
+                   extension selects the grammar.
         content:   Full text content of the file.
 
     Returns:
-        List of TSEntryPoint objects, deduplicated by (lineno, name).
+        List of TSEntryPoint objects in source order, deduplicated by (lineno, name).
     """
+    tree = parse_ts(file_path, content)
+    if tree is None:
+        results = _detect_regex(file_path, content)
+        for ep in results:
+            ep.fallback = True
+        return results
+    return _detect_tree_sitter(file_path, tree.root_node)
+
+
+# ---------------------------------------------------------------------------
+# Tree-sitter detection
+# ---------------------------------------------------------------------------
+
+_TOOL_METHODS = frozenset({"tool", "registerTool"})
+_LANGCHAIN_CLASSES = frozenset({"DynamicTool", "DynamicStructuredTool"})
+
+
+def _first_argument(call) -> Optional[object]:
+    args = call.child_by_field_name("arguments")
+    if args is None or not args.named_children:
+        return None
+    return args.named_children[0]
+
+
+def _detect_tree_sitter(file_path: str, root) -> List[TSEntryPoint]:
+    results: List[TSEntryPoint] = []
+    seen: set[tuple] = set()
+
+    def emit(name: str, lineno: int, pattern_type: str, confidence: float) -> None:
+        key = (lineno, name)
+        if key in seen:
+            return
+        seen.add(key)
+        results.append(TSEntryPoint(
+            name=name,
+            file=file_path,
+            lineno=lineno,
+            pattern_type=pattern_type,
+            confidence=confidence,
+        ))
+
+    for node in iter_nodes(root):
+        if node.type == "call_expression":
+            func = node.child_by_field_name("function")
+            if func is None or func.type != "member_expression":
+                continue
+            prop = func.child_by_field_name("property")
+            if prop is None:
+                continue
+            method = node_text(prop)
+            lineno = prop.start_point[0] + 1
+            first = _first_argument(node)
+
+            if method in _TOOL_METHODS:
+                # server.tool("name", ...) / server.registerTool("name", ...)
+                name = string_value(first)
+                if name:
+                    emit(name, lineno, "mcp_tool", 0.95)
+            elif method == "addTool":
+                # FastMCP: server.addTool({ name: "name", ... })
+                if first is not None and first.type == "object":
+                    name = string_value(object_pairs(first).get("name"))
+                    if name:
+                        emit(name, lineno, "mcp_tool", 0.90)
+            elif method == "setRequestHandler":
+                # server.setRequestHandler(CallToolRequestSchema, handler)
+                if first is not None and first.type == "identifier":
+                    emit(node_text(first), lineno, "mcp_handler", 0.80)
+                elif first is not None and first.type == "member_expression":
+                    schema = first.child_by_field_name("property")
+                    if schema is not None:
+                        emit(node_text(schema), lineno, "mcp_handler", 0.80)
+
+        elif node.type == "new_expression":
+            # LangChain.js: new DynamicTool({ name: "...", ... })
+            ctor = node.child_by_field_name("constructor")
+            if ctor is None:
+                continue
+            if ctor.type == "member_expression":
+                ctor = ctor.child_by_field_name("property")
+            if ctor is None or node_text(ctor) not in _LANGCHAIN_CLASSES:
+                continue
+            first = _first_argument(node)
+            name = None
+            if first is not None and first.type == "object":
+                name = string_value(object_pairs(first).get("name"))
+            emit(name or "unknown", node.start_point[0] + 1, "langchain_tool", 0.85)
+
+        elif node.type == "object":
+            # MCP tool definition object: { name: "...", description: ..., inputSchema: ... }
+            pairs = object_pairs(node)
+            if "description" not in pairs or "inputSchema" not in pairs:
+                continue
+            name_value = pairs.get("name")
+            name = string_value(name_value)
+            if name:
+                emit(name, name_value.start_point[0] + 1, "mcp_tool_definition", 0.85)
+
+    results.sort(key=lambda ep: ep.lineno)
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Regex detection (fallback when tree-sitter can't parse a file)
+# ---------------------------------------------------------------------------
+
+def _detect_regex(file_path: str, content: str) -> List[TSEntryPoint]:
+    """Line-based regex detection: the original v1 detector, kept as the parse-failure fallback."""
     results: List[TSEntryPoint] = []
     seen: set[tuple] = set()   # (lineno, name) pairs already emitted
 
