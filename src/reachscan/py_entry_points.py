@@ -61,6 +61,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from reachscan.py_annotations import (
+    DeclaredTool,
+    ModuleContext,
+    ToolAnnotationInfo,
+    annotations_from_call,
+    annotations_from_expr,
+    declared_tools,
+)
+
 # ---------------------------------------------------------------------------
 # Framework label constants (metadata only — do not use in detection logic)
 # ---------------------------------------------------------------------------
@@ -265,6 +274,12 @@ class EntryPoint:
     Fields written by reachability analysis (Step 3):
         reachable_findings — list of finding_ids confirmed reachable from
                              this entry point via the intra-project call graph
+
+    MCP annotation fields (internal; not in as_dict until the schema adds them):
+        annotations    — effective ToolAnnotations hints for a FastMCP
+                         @x.tool() entry point (spec defaults applied)
+        declared_tools — lowlevel types.Tool(...) declarations attached to a
+                         @x.list_tools() entry point
     """
     name: str
     file: str
@@ -273,6 +288,8 @@ class EntryPoint:
     pattern_type: str
     confidence: float = 1.0
     reachable_findings: List[str] = field(default_factory=list)
+    annotations: Optional[ToolAnnotationInfo] = None
+    declared_tools: List[DeclaredTool] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -1020,7 +1037,47 @@ def detect_py_entry_points(file_path: str, content: str) -> List[EntryPoint]:
                         results.append(ep)
                 break
 
+    _attach_mcp_annotations(tree, results, ModuleContext.from_tree(tree, imports))
     return results
+
+
+def _attach_mcp_annotations(
+    tree: ast.Module, results: List[EntryPoint], ctx: ModuleContext
+) -> None:
+    """Attach MCP annotation data to detected MCP entry points in this file.
+
+    FastMCP @x.tool(...) entry points get their effective annotations. A
+    @x.list_tools() entry point gets the types.Tool(...) declarations from its
+    own body and from module-level statements (tool lists defined as constants).
+    """
+    by_lineno = {
+        ep.lineno: ep for ep in results
+        if ep.framework == FRAMEWORK_MCP and ep.pattern_type == PATTERN_DECORATOR
+    }
+    if not by_lineno:
+        return
+    module_level = [
+        stmt for stmt in tree.body
+        if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    ]
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        ep = by_lineno.get(node.lineno)
+        if ep is None:
+            continue
+        for decorator in node.decorator_list:
+            key, _ = _decorator_key(decorator)
+            if key == "tool":
+                ep.annotations = (
+                    annotations_from_call(decorator, ctx)
+                    if isinstance(decorator, ast.Call)
+                    else annotations_from_expr(None, ctx)
+                )
+                break
+            if key == "list_tools":
+                ep.declared_tools = declared_tools([node, *module_level], ctx)
+                break
 
 
 # ---------------------------------------------------------------------------
