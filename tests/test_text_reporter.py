@@ -181,3 +181,62 @@ def test_py_entry_points_shown_at_top():
     ep_pos = out.index("Python Entry Points")
     summary_pos = out.index("Reachability Summary")
     assert ep_pos < summary_pos, "Entry points section must appear before Reachability Summary"
+
+
+# ── Combined risks from module-level code ──────────────────────────────────
+
+def _risk_results(states_by_cap, files_by_cap=None):
+    files_by_cap = files_by_cap or {}
+    findings = []
+    for cap, states in states_by_cap.items():
+        for i, state in enumerate(states):
+            findings.append({
+                "detector": "x",
+                "finding": {
+                    "capability": cap, "evidence": "e()", "lineno": i + 1,
+                    "file": files_by_cap.get(cap, [f"{cap.lower()}.ts"] * len(states))[i],
+                    "risk_level": "high", "reachability": state,
+                    "explanation": "", "impact": "",
+                },
+            })
+    return {
+        "target": "/p", "num_files_scanned": 1, "capabilities": list(states_by_cap),
+        "risks": [{
+            "id": "remote_control", "title": "Remote Control Risk", "severity": "high",
+            "why": "w", "capabilities_triggered": sorted(states_by_cap),
+        }],
+        "findings": findings,
+    }
+
+
+def test_combined_risk_from_module_level_only_is_labeled_with_files():
+    results = _risk_results(
+        {"EXECUTE": ["module_level", "unknown"], "SEND": ["module_level"]},
+        {"EXECUTE": ["scripts/build.ts", "src/a.ts"], "SEND": ["scripts/release.ts"]},
+    )
+    out = human_report(results)
+    assert "from module-level code only" in out
+    assert "      - scripts/build.ts" in out
+    assert "      - scripts/release.ts" in out
+    assert "      - src/a.ts" not in out  # unknown finding, not module-level
+    assert "[HIGH] Remote Control Risk" in out  # severity unchanged
+
+
+def test_combined_risk_with_reachable_capability_not_labeled():
+    results = _risk_results({"EXECUTE": ["reachable"], "SEND": ["module_level"]})
+    assert "from module-level code only" not in human_report(results)
+
+
+def test_combined_risk_without_reachability_data_not_labeled():
+    results = _risk_results({"EXECUTE": ["no_entry_points"], "SEND": ["no_entry_points"]})
+    assert "from module-level code only" not in human_report(results)
+
+
+def test_module_level_file_list_is_capped():
+    files = [f"scripts/s{i:02d}.ts" for i in range(13)]
+    results = _risk_results({"EXECUTE": ["module_level"] * 13, "SEND": ["module_level"]},
+                            {"EXECUTE": files, "SEND": ["scripts/s00.ts"]})
+    out = human_report(results)
+    assert "      - scripts/s09.ts" in out
+    assert "      - scripts/s10.ts" not in out
+    assert "… and 3 more files" in out

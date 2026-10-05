@@ -64,6 +64,29 @@ def _render_finding(item: dict, lines: List[str], show_path: bool, show_state_pr
     lines.append(f"    impact: {finding.get('impact', '')}")
 
 
+_MAX_LISTED_FILES = 10
+
+
+def _module_level_only_files(risk: dict, findings: list) -> List[str]:
+    """Files behind a combined risk that comes only from module-level code.
+
+    Returns the sorted files of the module_level findings for the risk's
+    capabilities when none of those capabilities has a reachable finding.
+    Returns [] otherwise, including when reachability wasn't evaluated (the
+    risk then reflects capability presence, not module-level code).
+    """
+    states = {item["finding"].get("reachability") for item in findings}
+    if not states - {None, "no_entry_points"}:
+        return []
+    caps = set(risk.get("capabilities_triggered", []))
+    relevant = [item["finding"] for item in findings if item["finding"].get("capability") in caps]
+    if any(f.get("reachability") == "reachable" for f in relevant):
+        return []
+    return sorted({
+        str(f.get("file", "unknown")) for f in relevant if f.get("reachability") == "module_level"
+    })
+
+
 def human_report(results: Dict[str, Any], explain: bool = False) -> str:
     lines = []
     lines.append("Agent Capability Report")
@@ -106,6 +129,13 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
             lines.append(f"    why: {risk.get('why', '')}")
             caps = ", ".join(risk.get("capabilities_triggered", []))
             lines.append(f"    capabilities: {caps}")
+            module_files = _module_level_only_files(risk, results.get("findings", []))
+            if module_files:
+                lines.append("    from module-level code only (runs on import, not via an LLM tool):")
+                for fpath in module_files[:_MAX_LISTED_FILES]:
+                    lines.append(f"      - {fpath}")
+                if len(module_files) > _MAX_LISTED_FILES:
+                    lines.append(f"      … and {len(module_files) - _MAX_LISTED_FILES} more files")
     else:
         lines.append("  None inferred from combined-capability rules.")
     lines.append("")
