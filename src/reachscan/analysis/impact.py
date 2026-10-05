@@ -8,7 +8,7 @@ _UNEVALUATED_STATES = {None, "no_entry_points"}
 _TS_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cts", ".cjs")
 
 
-def _language(finding: Dict[str, Any]) -> str:
+def finding_language(finding: Dict[str, Any]) -> str:
     """"ts" for TypeScript/JavaScript files, "python" otherwise (including no file)."""
     file = str(finding.get("file") or "").lower()
     return "ts" if file.endswith(_TS_SUFFIXES) else "python"
@@ -28,7 +28,7 @@ def risk_counted_findings(findings: Iterable[Dict[str, Any]]) -> List[Dict[str, 
     """
     by_language: Dict[str, List[Dict[str, Any]]] = {}
     for f in findings:
-        by_language.setdefault(_language(f), []).append(f)
+        by_language.setdefault(finding_language(f), []).append(f)
     counted: List[Dict[str, Any]] = []
     for group in by_language.values():
         evaluated = any(f.get("reachability") not in _UNEVALUATED_STATES for f in group)

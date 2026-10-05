@@ -12,6 +12,7 @@ The skill calls the `reachscan` CLI directly. There's no MCP server and no netwo
 
 - `reachscan` on your `PATH`: `pipx install reachscan`
 - Python 3.11 or later (for reachscan)
+- An agent that can run shell commands, such as Claude Code or Codex. In chat apps without a terminal, the skill explains that it needs one instead of guessing.
 
 ## Install in Claude Code
 
@@ -45,6 +46,7 @@ integrations/agent-plugins/
 ├── plugin.json                  # portable Agent Plugins manifest, with OpenAI metadata under extensions.com.openai
 ├── .claude-plugin/plugin.json   # Claude Code manifest
 ├── .codex-plugin/plugin.json    # Codex compatibility manifest, for older Codex clients
+├── assets/icon.svg              # listing icon
 └── skills/vet-mcp-server/SKILL.md
 ```
 
@@ -60,3 +62,17 @@ GitHub URLs, `pypi:name[==version]`, local paths, and `mcp+https://` endpoints. 
 ## Limits
 
 reachscan analyzes Python tool bodies. TypeScript/JavaScript tool handlers are detected, but their bodies aren't analyzed yet, and the skill says so when it matters. The verdict reflects code patterns, not proven runtime behavior.
+
+## Privacy
+
+reachscan runs locally and sends no data anywhere. See [PRIVACY.md](https://github.com/vinmay/reachscan/blob/main/PRIVACY.md).
+
+## Building the OpenAI submission ZIP
+
+From the repository root:
+
+```bash
+python scripts/build_openai_plugin_zip.py
+```
+
+This writes `dist/reachscan-plugin-<version>.zip` (the plugin folder plus the license, without the Claude Code manifest) for upload at [platform.openai.com/plugins](https://platform.openai.com/plugins).

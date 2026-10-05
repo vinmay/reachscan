@@ -9,6 +9,14 @@
 > Static capability analysis for Python and TypeScript/JavaScript AI code.
 > Know what it can do before it does it.
 
+## Quick start
+
+| You want to... | Use |
+|---|---|
+| Scan any agent or MCP server from your terminal | `pipx install reachscan`, then `reachscan <path \| github-url \| pypi:package>` |
+| Check your own agent or MCP server on every pull request | The [GitHub Action](https://github.com/marketplace/actions/reachscan): `uses: vinmay/reachscan-action@v1` ([CI integration](#ci-integration)) |
+| Vet someone else's MCP server before you install it | The plugin for Claude Code or Codex: ask "vet this MCP server before I add it: &lt;url&gt;" ([setup](#use-it-from-claude-code-or-codex)) |
+
 ---
 
 ## The problem
@@ -234,6 +242,33 @@ python -m reachscan.cli examples/demo_agent
 
 ---
 
+## Use it from Claude Code or Codex
+
+The reachscan plugin adds a `vet-mcp-server` skill to your coding agent. Before you add an MCP server, ask:
+
+```
+vet this MCP server before I add it: https://github.com/org/some-mcp-server
+```
+
+The agent runs reachscan on the server and tells you what each tool can execute, read, write, and send, with call paths for high-risk findings and an **Install / Review first / Avoid** verdict based only on the scan results. The plugin needs the reachscan CLI on your `PATH` (`pipx install reachscan`) and a terminal, so it works in Claude Code and Codex.
+
+**Claude Code** (inside a session):
+
+```
+/plugin marketplace add vinmay/reachscan
+/plugin install reachscan@reachscan
+```
+
+**Codex:**
+
+```bash
+codex plugin marketplace add vinmay/reachscan
+```
+
+Then open the Plugins Directory, choose the **reachscan** marketplace, and install the plugin. Details are in [`integrations/agent-plugins`](integrations/agent-plugins/README.md).
+
+---
+
 ## Requirements
 
 - Python 3.11+
@@ -309,28 +344,46 @@ Writes [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0
 - Each reachable finding has a `codeFlow` that walks the call chain from the LLM entry point to the sink, so the code scanning UI shows the path step by step.
 - Reachability state, confidence, and entry point are in each result's `properties`.
 - By default only `reachable` and `module_level` findings are included, so the Security tab shows only what an LLM can trigger. Add `--sarif-include-unreachable` to include everything.
+- When a language has findings but no detected entry points, reachability isn't evaluated for it and its findings are left out by default. The SARIF run then carries a warning notification (`invocations[].toolExecutionNotifications`) saying how many findings weren't shown, so an empty Security tab isn't mistaken for a clean scan.
 
 ---
 
 ## CI Integration
 
+The easiest way is the [reachscan GitHub Action](https://github.com/marketplace/actions/reachscan). It installs reachscan, uploads findings to the GitHub Security tab with call chains, and fails the job when a reachable finding meets your severity threshold:
+
 ```yaml
-name: Agent Capability Audit
+name: reachscan
 on: [push, pull_request]
+permissions:
+  contents: read
+  security-events: write
 jobs:
   reachscan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: pipx install reachscan
-      - name: Run capability audit
-        run: reachscan . --json > reachscan-report.json
-        # Exits 1 if HIGH reachable capabilities found
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: reachscan-report
-          path: reachscan-report.json
+      - uses: actions/checkout@v7
+      - uses: vinmay/reachscan-action@v1
+        # with:
+        #   severity: medium   # or none for report-only
+        #   path: servers/my-mcp-server
+```
+
+Inputs, outputs, and more examples are in the [action's README](https://github.com/vinmay/reachscan-action).
+
+To run the CLI yourself instead, for example to keep a JSON report as a build artifact:
+
+```yaml
+- uses: actions/checkout@v7
+- run: pipx install reachscan
+- name: Run capability audit
+  run: reachscan . --json > reachscan-report.json
+  # Exits 1 if HIGH reachable capabilities found
+- uses: actions/upload-artifact@v7
+  if: always()
+  with:
+    name: reachscan-report
+    path: reachscan-report.json
 ```
 
 To audit without blocking the pipeline (report only):
@@ -339,7 +392,7 @@ To audit without blocking the pipeline (report only):
 - run: reachscan . --json --severity none > reachscan-report.json
 ```
 
-To show findings in the GitHub Security tab, with call chains, upload SARIF:
+To upload SARIF to the GitHub Security tab without the action:
 
 ```yaml
 permissions:

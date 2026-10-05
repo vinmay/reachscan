@@ -319,3 +319,81 @@ def test_relativize_paths_covers_hop_locations(tmp_path):
     finding = report["findings"][0]["finding"]
     assert finding["file"] == str(Path("pkg") / "mod.py")
     assert finding["reachability_path_locations"][0]["file"] == str(Path("pkg") / "mod.py")
+
+
+# ---------------------------------------------------------------------------
+# No-entry-point notifications
+# ---------------------------------------------------------------------------
+
+def _notif_results(findings, py_eps=(), ts_eps=()):
+    return {
+        "target": "https://github.com/org/repo",
+        "source_type": "github",
+        "findings": [{"detector": "shell_exec", "finding": f} for f in findings],
+        "risks": [],
+        "py_entry_points": list(py_eps),
+        "ts_entry_points": list(ts_eps),
+    }
+
+
+def _nf(file, state, fid):
+    f = _f(state=state, fid=fid)
+    f["file"] = file
+    return f
+
+
+def _notifications(log):
+    return log["runs"][0]["invocations"][0].get("toolExecutionNotifications", [])
+
+
+def test_python_without_entry_points_emits_notification():
+    findings = [_nf("a.py", "no_entry_points", "1"), _nf("b.py", "no_entry_points", "2")]
+    log = build_sarif(_notif_results(findings))
+    _validate(log)
+    (note,) = _notifications(log)
+    assert note["level"] == "warning"
+    assert note["message"]["text"] == (
+        "No entry points detected for Python; reachability not evaluated; 2 findings not shown. "
+        "Use --sarif-include-unreachable to include them."
+    )
+    assert note["properties"] == {"language": "python", "findingsNotShown": 2}
+    assert log["runs"][0]["invocations"][0]["executionSuccessful"] is True
+
+
+def test_include_unreachable_suppresses_notification():
+    findings = [_nf("a.py", "no_entry_points", "1")]
+    log = build_sarif(_notif_results(findings), include_unreachable=True)
+    _validate(log)
+    assert _notifications(log) == []
+
+
+def test_python_with_entry_points_has_no_notification():
+    findings = [_nf("a.py", "unreachable", "1")]
+    log = build_sarif(_notif_results(findings, py_eps=[{"name": "tool"}]))
+    assert _notifications(log) == []
+
+
+def test_ts_without_entry_points_counts_only_hidden_findings():
+    findings = [
+        _nf("build.ts", "module_level", "1"),   # shown by default
+        _nf("lib.ts", "no_entry_points", "2"),
+        _nf("util.mjs", "no_entry_points", "3"),
+    ]
+    log = build_sarif(_notif_results(findings))
+    _validate(log)
+    (note,) = _notifications(log)
+    assert note["properties"] == {"language": "ts", "findingsNotShown": 2}
+    assert "No entry points detected for TypeScript/JavaScript" in note["message"]["text"]
+
+
+def test_mixed_project_notifies_only_the_language_without_entry_points():
+    findings = [_nf("server.py", "unreachable", "1"), _nf("ui.ts", "no_entry_points", "2")]
+    log = build_sarif(_notif_results(findings, py_eps=[{"name": "tool"}]))
+    assert [n["properties"]["language"] for n in _notifications(log)] == ["ts"]
+
+
+def test_no_findings_no_notification():
+    log = build_sarif(_notif_results([]))
+    _validate(log)
+    assert _notifications(log) == []
+    assert log["runs"][0]["invocations"] == [{"executionSuccessful": True}]
