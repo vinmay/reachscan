@@ -112,6 +112,26 @@ TypeScript and JavaScript code is also analyzed for capabilities: `child_process
 
 **Current limitation:** TypeScript call paths aren't traced yet. TypeScript findings inside functions are reported as `unknown` (or `no_entry_points` when no TS entry points exist), and top-level code that runs on import is reported as `module_level`. Unknown findings don't affect the exit code and are left out of SARIF by default. Python reachability is unaffected.
 
+### Verifying MCP tool annotations
+
+MCP tools can declare [`ToolAnnotations`](https://modelcontextprotocol.io/specification/2026-07-28/schema#toolannotations) hints such as `readOnlyHint`, `openWorldHint`, and `destructiveHint`. Clients use them to decide what to auto-approve, but they're claims the server makes about itself. For Python MCP servers, reachscan checks each claim against what the tool can actually reach:
+
+| Declared | Contradicted by a reachable... | Severity |
+|---|---|---|
+| `readOnlyHint: true` | WRITE, EXECUTE, or DYNAMIC | high |
+| `openWorldHint: false` | SEND (HTTP, sockets, WebSockets; not a project's own `connect()` wrapper or a database driver) | high |
+| `destructiveHint: false` (with `readOnlyHint: false`) | delete, move/rename, or truncating write | medium |
+
+```text
+Annotation Mismatches  —  MCP tool annotations contradicted by reachable code
+-----------------------------------------------------------------------------
+  [HIGH] get_report declares readOnlyHint: true
+    but reaches WRITE via os.remove() (server.py:9)
+    path: get_report → _cleanup → os.remove()
+```
+
+Every mismatch comes with the call path from that tool to the contradicting code. A contradiction without such a path isn't reported. Only explicitly declared hints are checked: absent hints fall back to the spec's conservative defaults, which claim nothing, and hints reachscan can't resolve statically (imported from outside the project, built by a helper function) are skipped and listed under `--explain`. FastMCP `@mcp.tool(annotations=...)` and lowlevel `types.Tool(...)` declarations are both supported. Lowlevel tools are linked to their branch in the `call_tool` handler when it dispatches with `if name == ...` or `match name:`. Mismatches appear in the text report, in JSON (`annotation_mismatches`, schema 1.1), and in SARIF as rule `mcp-risk-mismatch`. TypeScript support is planned.
+
 ---
 
 ## What it looks like
@@ -440,7 +460,7 @@ What works today:
 
 | Area | Status |
 |---|---|
-| Python | Capability detection, entry points for the frameworks above, call-graph reachability (up to 8 hops) |
+| Python | Capability detection, entry points for the frameworks above, call-graph reachability (up to 8 hops), MCP annotation verification |
 | TypeScript / JavaScript | Parsed with tree-sitter (no Node.js needed). Entry point detection and capability detection for all seven classes. Reachability through TS call paths is in progress: until then, TS findings inside functions are reported as `unknown` |
 | Scan targets | Local paths, GitHub URLs, PyPI packages (`pypi:name[==version]`), MCP HTTP endpoints (`mcp+https://...`) |
 | Output | Text report, JSON ([schema v1](docs/schema_v1.md)), SARIF 2.1.0 with call chains, `--explain` call traces |

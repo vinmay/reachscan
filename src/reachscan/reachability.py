@@ -268,15 +268,31 @@ def _bfs(
 # Main reachability pass
 # ---------------------------------------------------------------------------
 
+@dataclass
+class ReachabilityIndex:
+    """Per-entry-point reachability detail kept for analyses after tagging.
+
+    entry_nodes   — {entry point index → its start FunctionNode}
+    reached       — {entry point index → {FunctionNode → path of nodes from the
+                     entry point}}; each entry point's own BFS result, not the
+                     shortest-across-all-entry-points view used for tagging
+    containing    — {finding_id → (file, qualname) of the enclosing function}
+    """
+    entry_nodes: Dict[int, FunctionNode] = field(default_factory=dict)
+    reached: Dict[int, Dict[FunctionNode, List[FunctionNode]]] = field(default_factory=dict)
+    containing: Dict[str, Tuple[str, str]] = field(default_factory=dict)
+
+
 def analyze_reachability(
     findings: List[dict],
     py_entry_points: list,
     graph: CallGraph,
     lineno_index: LinenoIndex,
-) -> None:
+) -> ReachabilityIndex:
     """Tag each finding dict with its reachability state. Mutates findings in place.
 
-    Also populates EntryPoint.reachable_findings for each REACHABLE finding.
+    Also populates EntryPoint.reachable_findings for each REACHABLE finding,
+    and returns a ReachabilityIndex with each entry point's own reach map.
 
     Args:
         findings:         List of enriched finding dicts (from scanner.py).
@@ -287,10 +303,11 @@ def analyze_reachability(
     for f in findings:
         assert "reachability" in f, f"Finding missing reachability field: {f}"
 
+    index = ReachabilityIndex()
     if not py_entry_points:
         for f in findings:
             f.update(ReachabilityResult(state=NO_ENTRY_POINTS).as_finding_fields())
-        return
+        return index
 
     # BFS from every entry point; accumulate best (shortest, then alphabetical) path
     reachable_from: Dict[FunctionNode, Tuple[str, int, List[FunctionNode]]] = {}
@@ -313,6 +330,8 @@ def analyze_reachability(
         start: FunctionNode = (canonical, py_name)
         reached, nodes_skipped = _bfs(start, graph, TRAVERSAL_DEPTH)
         total_nodes_skipped += nodes_skipped
+        index.entry_nodes[ep_idx] = start
+        index.reached[ep_idx] = reached
 
         for node, path in reached.items():
             existing = reachable_from.get(node)
@@ -334,6 +353,8 @@ def analyze_reachability(
         file = finding["file"]
         lineno = finding["lineno"]
         containing = _containing_function(file, lineno, lineno_index)
+        if containing is not None and finding.get("finding_id") is not None:
+            index.containing[finding["finding_id"]] = containing
 
         if containing is None:
             warnings.warn(
@@ -361,3 +382,5 @@ def analyze_reachability(
             finding.update(ReachabilityResult(state=UNKNOWN).as_finding_fields())
         else:
             finding.update(ReachabilityResult(state=UNREACHABLE).as_finding_fields())
+
+    return index

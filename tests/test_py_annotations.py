@@ -276,11 +276,25 @@ def test_non_mcp_tool_has_no_annotations():
     assert ep.annotations is None
 
 
-def test_annotations_not_in_json_dict():
+def test_annotations_in_json_dict_for_mcp_tools():
     ep = _tool('''
         @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
         def t(): ...
     ''')
+    ann = ep.as_dict()["annotations"]
+    assert ann["declared"] is True and ann["unresolved_reference"] is False
+    assert ann["readOnlyHint"] == {"value": True, "source": "explicit"}
+    assert ann["destructiveHint"] == {"value": False, "source": "default"}
+    assert "declared_tools" not in ep.as_dict()
+
+
+def test_non_mcp_entry_point_dict_has_no_annotation_keys():
+    header = "from langchain_core.tools import tool\n"
+    ep = _tool('''
+        @tool
+        def t(x: str) -> str:
+            return x
+    ''', header=header)
     assert "annotations" not in ep.as_dict()
     assert "declared_tools" not in ep.as_dict()
 

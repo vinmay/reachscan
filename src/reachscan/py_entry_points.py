@@ -276,7 +276,7 @@ class EntryPoint:
         reachable_findings — list of finding_ids confirmed reachable from
                              this entry point via the intra-project call graph
 
-    MCP annotation fields (internal; not in as_dict until the schema adds them):
+    MCP annotation fields (in as_dict only when present; JSON schema 1.1):
         annotations    — effective ToolAnnotations hints for a FastMCP
                          @x.tool() entry point (spec defaults applied)
         declared_tools — lowlevel types.Tool(...) declarations attached to a
@@ -293,7 +293,7 @@ class EntryPoint:
     declared_tools: List[DeclaredTool] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
-        return {
+        result: Dict[str, Any] = {
             "name": self.name,
             "file": self.file,
             "lineno": self.lineno,
@@ -302,6 +302,11 @@ class EntryPoint:
             "confidence": self.confidence,
             "reachable_findings": self.reachable_findings,
         }
+        if self.annotations is not None:
+            result["annotations"] = self.annotations.as_dict()
+        if self.declared_tools:
+            result["declared_tools"] = [tool.as_dict() for tool in self.declared_tools]
+        return result
 
 
 # ---------------------------------------------------------------------------

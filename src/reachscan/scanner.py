@@ -17,6 +17,10 @@ from reachscan.ts_capabilities import scan_ts_capabilities
 from reachscan.py_entry_points import scan_py_files, EntryPoint as PyEntryPoint
 from reachscan.call_graph import build_call_graph
 from reachscan.reachability import analyze_reachability
+from reachscan.analysis.annotation_mismatch import (
+    find_annotation_mismatches,
+    unresolvable_annotations,
+)
 from reachscan import detectors  # noqa: F401 - ensures detector modules register themselves
 
 
@@ -165,6 +169,18 @@ def _relativize_paths(report: dict, root: Path) -> None:
                 loc["file"] = str(Path(loc["file"]).relative_to(root))
             except ValueError:
                 pass
+    for mismatch in report.get("annotation_mismatches", []):
+        for holder in (mismatch.get("entry_point", {}), mismatch.get("observed", {}),
+                       *(mismatch.get("reachability_path_locations") or [])):
+            try:
+                holder["file"] = str(Path(holder["file"]).relative_to(root))
+            except (ValueError, KeyError, TypeError):
+                pass
+    for note in report.get("annotation_notes", []):
+        try:
+            note["file"] = str(Path(note["file"]).relative_to(root))
+        except (ValueError, KeyError):
+            pass
     for ep in report.get("py_entry_points", []) + report.get("ts_entry_points", []):
         try:
             ep["file"] = str(Path(ep["file"]).relative_to(root))
@@ -329,11 +345,16 @@ def scan_path(
 
     # Reachability analysis (Python findings only): build call graph and tag each finding
     graph, lineno_idx, _ = build_call_graph(py_files, path)
-    analyze_reachability(
+    reach_index = analyze_reachability(
         findings=py_findings,
         py_entry_points=py_entry_points,
         graph=graph,
         lineno_index=lineno_idx,
+    )
+
+    # MCP annotation claims contradicted by capabilities reachable from that tool
+    annotation_mismatches, linkage = find_annotation_mismatches(
+        py_findings, py_entry_points, reach_index, graph, lineno_idx
     )
 
     # Combined risks must run after reachability so they only fire on capabilities
@@ -353,6 +374,10 @@ def scan_path(
         "num_ts_files_unparsed": num_ts_files_unparsed,
         "ts_entry_points": [ep.as_dict() for ep in ts_entry_points],
         "py_entry_points": [ep.as_dict() for ep in py_entry_points],
+        "annotation_mismatches": annotation_mismatches,
+        # Internal (not in JSON): --explain notes and lowlevel linkage counts
+        "annotation_notes": unresolvable_annotations(py_entry_points),
+        "lowlevel_tool_linkage": {"linked": linkage.linked, "unlinked": linkage.unlinked},
         "other_languages": other_languages,
     }
     return report

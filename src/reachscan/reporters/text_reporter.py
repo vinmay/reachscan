@@ -86,6 +86,55 @@ def _module_level_only_files(risk: dict, findings: list) -> List[str]:
     return sorted({str(f.get("file", "unknown")) for f in counted})
 
 
+def _location(file: Any, lineno: Any) -> str:
+    return f"{file}:{lineno}" if lineno else str(file)
+
+
+def _render_annotation_mismatches(results: Dict[str, Any], lines: List[str], explain: bool) -> None:
+    mismatches = results.get("annotation_mismatches", [])
+    notes = results.get("annotation_notes", [])
+    if not mismatches and not (explain and notes):
+        return
+    title = "Annotation Mismatches  —  MCP tool annotations contradicted by reachable code"
+    lines += [title, "-" * len(title)]
+    if not mismatches:
+        lines.append("  None found.")
+    for m in mismatches:
+        declared = m["declared"]
+        observed = m["observed"]
+        claim = f"{declared['hint']}: {str(declared['value']).lower()}"
+        lines.append(f"  [{m['risk_level'].upper()}] {m['tool']} declares {claim}")
+        lines.append(
+            f"    but reaches {observed['capability']} via {observed['evidence']} "
+            f"({_location(observed['file'], observed['lineno'])})"
+        )
+        if explain:
+            lines.append("    call chain:")
+            lines.append("      " + _format_path(m["reachability_path"], False, explain=True)
+                         + f"\n      → {observed['evidence']}")
+        else:
+            lines.append(f"    path: {' → '.join(m['reachability_path'])} → {observed['evidence']}")
+        extra = m.get("additional_observations", [])
+        if extra and explain:
+            lines.append("    also reaches:")
+            for o in extra:
+                lines.append(
+                    f"      - {o['capability']} via {o['evidence']} ({_location(o['file'], o['lineno'])})"
+                    f" — path: {' → '.join(o['reachability_path'])}"
+                )
+        elif extra:
+            lines.append(f"    (+{len(extra)} more contradicting call site{'s' if len(extra) > 1 else ''}; use --explain)")
+    if explain and notes:
+        lines.append("")
+        lines.append("  Not checked (annotations couldn't be resolved statically):")
+        for note in notes:
+            lines.append(
+                f"    • {note['tool']} ({_location(note['file'], note['lineno'])}): "
+                f"{', '.join(note['hints'])} — {note['reason']}"
+            )
+    lines.append("")
+
+
 def human_report(results: Dict[str, Any], explain: bool = False) -> str:
     lines = []
     lines.append("Agent Capability Report")
@@ -138,6 +187,8 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
     else:
         lines.append("  None inferred from combined-capability rules.")
     lines.append("")
+
+    _render_annotation_mismatches(results, lines, explain)
 
     findings = results.get("findings", [])
     all_states = {item["finding"].get("reachability") for item in findings}
