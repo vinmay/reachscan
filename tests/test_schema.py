@@ -110,7 +110,7 @@ def test_build_v1_report_required_top_level_keys():
 
 def test_build_v1_report_schema_version():
     report = build_v1_report(_make_results())
-    assert report["schema_version"] == "1"
+    assert report["schema_version"] == "1.1"
 
 
 def test_build_v1_report_generated_at_is_valid_utc_iso8601():

@@ -91,6 +91,32 @@ def _build_rules() -> List[Dict[str, Any]]:
                 },
             }
         )
+    rules.append(
+        {
+            "id": MISMATCH_RULE_ID,
+            "name": "McpRiskMismatch",
+            "shortDescription": {"text": "MCP tool annotation contradicted by reachable code"},
+            "fullDescription": {
+                "text": (
+                    "An MCP tool explicitly declares a ToolAnnotations hint (readOnlyHint, "
+                    "openWorldHint, or destructiveHint) that a call path from the tool contradicts."
+                )
+            },
+            "help": {
+                "text": (
+                    "Clients use these hints to decide what to auto-approve. A false hint can let a "
+                    "tool that writes, executes, or reaches the network run without the approval "
+                    "the client would otherwise ask for. Fix the code or correct the annotation."
+                )
+            },
+            "helpUri": INFORMATION_URI,
+            "defaultConfiguration": {"level": "error"},
+            "properties": {
+                "tags": ["security", "reachscan", "mcp", "annotations"],
+                "security-severity": _SECURITY_SEVERITY["high"],
+            },
+        }
+    )
     for risk_id, rule in COMBINED_RULES.items():
         rules.append(
             {
@@ -293,6 +319,73 @@ def _risk_result(
     return result
 
 
+MISMATCH_RULE_ID = "mcp-risk-mismatch"
+
+
+def _mismatch_result(
+    mismatch: Dict[str, Any], locator: "_Locator", rule_index: Dict[str, int]
+) -> Dict[str, Any]:
+    observed = mismatch["observed"]
+    entry = mismatch["entry_point"]
+    hops = mismatch.get("reachability_path_locations") or []
+    thread_locations = []
+    for i, hop in enumerate(hops):
+        label = f"MCP tool '{mismatch['tool']}'" if i == 0 else "calls"
+        thread_locations.append({
+            "location": {
+                "physicalLocation": locator.physical(hop["file"], hop.get("lineno")),
+                "message": {"text": f"{label} {hop['function']}" if i else f"{label} ({hop['function']})"},
+            },
+            "nestingLevel": i,
+            "executionOrder": i,
+        })
+    thread_locations.append({
+        "location": {
+            "physicalLocation": locator.physical(observed["file"], observed.get("lineno")),
+            "message": {"text": f"{observed['capability']} via {observed['evidence']}"},
+        },
+        "nestingLevel": len(hops),
+        "executionOrder": len(hops),
+    })
+    related = [{
+        "id": 1,
+        "physicalLocation": locator.physical(entry["file"], entry.get("lineno")),
+        "message": {"text": f"Tool '{mismatch['tool']}' declares "
+                            f"{mismatch['declared']['hint']}: {str(mismatch['declared']['value']).lower()}"},
+    }]
+    for i, extra in enumerate(mismatch.get("additional_observations", []), start=2):
+        related.append({
+            "id": i,
+            "physicalLocation": locator.physical(extra["file"], extra.get("lineno")),
+            "message": {"text": f"Also reaches {extra['capability']} via {extra['evidence']}"},
+        })
+    result: Dict[str, Any] = {
+        "ruleId": MISMATCH_RULE_ID,
+        "level": _REACHABLE_LEVELS.get(mismatch["risk_level"], "note"),
+        "message": {"text": mismatch["message"]},
+        "locations": [{"physicalLocation": locator.physical(observed["file"], observed.get("lineno"))}],
+        "relatedLocations": related,
+        "codeFlows": [{
+            "message": {"text": f"Call chain from MCP tool '{mismatch['tool']}'"},
+            "threadFlows": [{"locations": thread_locations}],
+        }],
+        "partialFingerprints": {"reachscanMismatchId/v1": mismatch["mismatch_id"]},
+        "properties": {
+            "tool": mismatch["tool"],
+            "mismatchRule": mismatch["rule"],
+            "declared": mismatch["declared"],
+            "observed": {k: observed[k] for k in ("capability", "evidence", "finding_id") if k in observed},
+            "riskLevel": mismatch["risk_level"],
+            "dispatch": entry.get("dispatch"),
+            "reachabilityPath": mismatch["reachability_path"],
+            "additionalObservations": len(mismatch.get("additional_observations", [])),
+        },
+    }
+    if MISMATCH_RULE_ID in rule_index:
+        result["ruleIndex"] = rule_index[MISMATCH_RULE_ID]
+    return result
+
+
 _LANGUAGE_LABELS = {"python": "Python", "ts": "TypeScript/JavaScript"}
 _ENTRY_POINT_KEYS = {"python": "py_entry_points", "ts": "ts_entry_points"}
 
@@ -351,6 +444,10 @@ def build_sarif(results: Dict[str, Any], include_unreachable: bool = False) -> D
         risk_result = _risk_result(risk, all_findings, locator, rule_index)
         if risk_result:
             sarif_results.append(risk_result)
+
+    # Mismatches always carry a call path from the tool, so they're always shown.
+    for mismatch in results.get("annotation_mismatches", []):
+        sarif_results.append(_mismatch_result(mismatch, locator, rule_index))
 
     run: Dict[str, Any] = {
         "tool": {

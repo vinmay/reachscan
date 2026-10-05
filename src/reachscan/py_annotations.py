@@ -82,6 +82,13 @@ class ToolAnnotationInfo:
     declared: bool                    # an annotations argument was given (and not None)
     unresolved_reference: bool = False  # annotations passed by a reference we couldn't resolve
 
+    def as_dict(self) -> dict:
+        return {
+            "declared": self.declared,
+            "unresolved_reference": self.unresolved_reference,
+            **{key: hv.as_dict() for key, hv in self.hints().items()},
+        }
+
     def hints(self) -> Dict[str, HintValue]:
         return {
             "readOnlyHint": self.read_only,
@@ -97,6 +104,9 @@ class DeclaredTool:
     name: str
     lineno: int
     annotations: ToolAnnotationInfo
+
+    def as_dict(self) -> dict:
+        return {"name": self.name, "lineno": self.lineno, "annotations": self.annotations.as_dict()}
 
 
 # ---------------------------------------------------------------------------

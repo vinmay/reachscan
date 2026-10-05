@@ -14,6 +14,8 @@ def _get_tool_version() -> str:
         return "unknown"
 
 
+SCHEMA_VERSION = "1.1"
+
 _VALID_RISK_LEVELS = {"high", "medium", "low", "info"}
 
 _STATIC_ANALYSIS_NOTE = (
@@ -75,7 +77,7 @@ def build_v1_report(results: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     report: Dict[str, Any] = {
-        "schema_version": "1",
+        "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "reachscan_version": _get_tool_version(),
         "target": results.get("target", ""),
@@ -89,6 +91,10 @@ def build_v1_report(results: Dict[str, Any]) -> Dict[str, Any]:
         "capabilities": results.get("capabilities", []),
         "risks": results.get("risks", []),
         "findings": normalized_findings,
+        "annotation_mismatches": [
+            {k: v for k, v in m.items() if k != "reachability_path_locations"}
+            for m in results.get("annotation_mismatches", [])
+        ],
         "other_languages": results.get("other_languages", []),
         "static_analysis_note": _STATIC_ANALYSIS_NOTE,
     }

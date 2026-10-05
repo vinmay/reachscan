@@ -2,6 +2,28 @@
 
 All notable changes to reachscan are documented here. This project follows [Semantic Versioning](https://semver.org/). The JSON output schema has its own version (`schema_version`), documented in [`docs/schema_v1.md`](docs/schema_v1.md).
 
+## [0.3.0rc1] - 2026-10-05 (release candidate)
+
+### Added
+
+- **MCP annotation verification (Python).** reachscan reads the `ToolAnnotations` hints that MCP tools declare (FastMCP `@mcp.tool(annotations=...)` and lowlevel `types.Tool(...)`) and reports an **annotation mismatch** when a call path from that tool contradicts an explicit hint:
+  - `readOnlyHint: true` + reachable WRITE, EXECUTE, or DYNAMIC (high);
+  - `openWorldHint: false` + reachable SEND (high);
+  - `destructiveHint: false` + a reachable delete, move/rename, or truncating write (medium).
+
+  Every mismatch includes the call path from the tool to the contradicting code, and a contradiction without one isn't reported. Absent hints use the MCP spec's conservative defaults (schema 2026-07-28) and aren't checked. Hints that can't be resolved statically are skipped and listed under `--explain`. Lowlevel tools are linked to their branch in the `call_tool` handler for `if name == ...` / `match name:` dispatch. Mismatches appear in a new "Annotation Mismatches" section of the text report, in JSON, and in SARIF as rule `mcp-risk-mismatch`.
+- **JSON schema 1.1** (additive): a top-level `annotation_mismatches` array and per-entry-point `annotations` / `declared_tools`. All v1 fields are unchanged. See [`docs/schema_v1.md`](docs/schema_v1.md).
+- **TypeScript/JavaScript capability detection.** All seven capability classes are now detected in TS/JS code, with imports resolved first (ESM, CommonJS, `node:` prefixes, aliases), so `regex.exec()` or a local `exec` helper isn't mistaken for `child_process.exec`. TS call paths aren't traced yet: TS findings inside functions are reported as `unknown` (or `no_entry_points`), top-level code as `module_level`, and TS findings don't affect exit codes.
+- **Tree-sitter parsing for TypeScript/JavaScript**, using prebuilt wheels (no Node.js needed). `.tsx` and `.jsx` files are now scanned. Entry point detection no longer matches inside comments or strings, and it finds registrations however they're formatted.
+- **SARIF notification when entry points are missing.** When a language has findings but no detected entry points, the SARIF run carries a warning in `invocations[].toolExecutionNotifications` saying how many findings weren't shown.
+- **Text report:** a combined risk that comes only from module-level code is labelled "from module-level code only", with the files listed.
+
+### Changed
+
+- **New runtime dependencies:** `tree-sitter`, `tree-sitter-typescript`, `tree-sitter-javascript` (pure pip wheels).
+- The combined-risk presence fallback (used when no entry points were detected) is decided separately for Python and TypeScript/JavaScript findings. Python results are the same as in 0.2.0.
+- README: a quick start by audience, setup for the Claude Code / Codex plugin, CI docs led by the [GitHub Action](https://github.com/marketplace/actions/reachscan), and a "what works today" status table.
+
 ## [0.2.0] - 2026-10-05
 
 ### Added
@@ -36,6 +58,7 @@ JSON output is unchanged. It is still schema v1.
 
 - First release.
 
+[0.3.0rc1]: https://github.com/vinmay/reachscan/compare/v0.2.0...v0.3.0rc1
 [0.2.0]: https://github.com/vinmay/reachscan/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/vinmay/reachscan/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/vinmay/reachscan/releases/tag/v0.1.0

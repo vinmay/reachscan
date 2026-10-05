@@ -4,13 +4,19 @@ This document is the canonical reference for the `--json` output format introduc
 
 The schema is **stable**: new fields may be added in future minor versions, but existing fields will not be removed or renamed without a major schema version bump.
 
+**Schema 1.1** (reachscan 0.3.0) adds, without changing any v1 field:
+- top-level [`annotation_mismatches`](#annotation-mismatch-object);
+- optional `annotations` and `declared_tools` on [Python entry points](#python-entry-point-object).
+
+Consumers that ignore unknown fields can read 1.1 reports unchanged.
+
 ---
 
 ## Top-level fields
 
 | Field | Type | Always present | Description |
 |-------|------|----------------|-------------|
-| `schema_version` | `string` | Yes | Always `"1"` for this schema version |
+| `schema_version` | `string` | Yes | `"1.1"` (was `"1"` before reachscan 0.3.0). Additive versions keep the major number |
 | `generated_at` | `string` | Yes | UTC ISO-8601 timestamp (`YYYY-MM-DDTHH:MM:SSZ`) |
 | `reachscan_version` | `string` | Yes | Version of the reachscan package; `"unknown"` if not installed |
 | `target` | `string` | Yes | The scan target as provided (path, URL, or `pypi:name==version`) |
@@ -24,6 +30,7 @@ The schema is **stable**: new fields may be added in future minor versions, but 
 | `capabilities` | `array<string>` | Yes | Sorted list of capability keys present across all findings (e.g. `["EXECUTE", "SEND"]`) |
 | `risks` | `array` | Yes | Cross-capability risk inferences (see [Risk object](#risk-object)) |
 | `findings` | `array` | Yes | All findings from all detectors (see [Finding wrapper](#finding-wrapper)) |
+| `annotation_mismatches` | `array` | Yes (1.1) | MCP tool annotations contradicted by capabilities reachable from that tool (see [Annotation mismatch object](#annotation-mismatch-object)). Empty when there are none |
 | `other_languages` | `array` | Yes | Non-Python/TS languages detected when no Python files found (see [Language object](#language-object)) |
 | `static_analysis_note` | `string` | Yes | Disclaimer: `"This report reflects code patterns. It does not prove runtime behavior or exploitability."` |
 
@@ -93,6 +100,38 @@ Each element of `py_entry_points`:
 | `pattern` | `string` | Detection pattern used (e.g. `"decorator"`, `"class"`) |
 | `confidence` | `float` | Framework attribution confidence in `[0.0, 1.0]` |
 | `reachable_findings` | `array<string>` | Finding IDs reachable from this entry point |
+| `annotations` | `object` | (1.1, MCP decorator tools only) Effective ToolAnnotations hints; see [Annotations object](#annotations-object) |
+| `declared_tools` | `array` | (1.1, MCP lowlevel `list_tools` handlers only) `types.Tool` declarations: `{name, lineno, annotations}` |
+
+### Annotations object
+
+Spec defaults (MCP schema 2026-07-28) are applied: `readOnlyHint` false; `destructiveHint` true only when `readOnlyHint` is false; `idempotentHint` false; `openWorldHint` true.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `declared` | `boolean` | An annotations argument was given (and wasn't `None`) |
+| `unresolved_reference` | `boolean` | Annotations were passed by a reference that couldn't be resolved statically |
+| `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` | `object` | `{"value": true \| false \| null, "source": "explicit" \| "default" \| "unresolvable"}`. Unresolvable values are `null` and never produce mismatches. snake_case spellings (`read_only_hint`) are unresolvable because their effect depends on the MCP SDK version |
+
+---
+
+## Annotation mismatch object
+
+Each element of `annotation_mismatches` describes one false claim: an explicitly declared hint on one MCP tool, contradicted by a capability reachable from that tool. One object per (tool, rule); further contradicting call sites are listed in `additional_observations`. A contradiction without a call path from the tool is never reported.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rule_id` | `string` | Always `"mcp-risk-mismatch"` (also the SARIF rule id) |
+| `rule` | `string` | `read_only_contradicted` (readOnlyHint true + reachable WRITE/EXECUTE/DYNAMIC), `closed_world_contradicted` (openWorldHint false + a reachable outbound HTTP, websocket, or raw socket connect not to a literal loopback host; project-module calls, database drivers, and other protocol clients don't count), or `non_destructive_contradicted` (destructiveHint false, with readOnlyHint false, + reachable delete, move/rename, or truncating write) |
+| `risk_level` | `string` | `"high"` for read_only / closed_world, `"medium"` for non_destructive |
+| `tool` | `string` | MCP tool name |
+| `entry_point` | `object` | `{name, file, lineno, dispatch}`. `dispatch` is `"decorator"` (FastMCP) or `"lowlevel"` (a `types.Tool` linked to its branch in the `call_tool` handler) |
+| `declared` | `object` | `{hint, value}`, e.g. `{"hint": "readOnlyHint", "value": true}` |
+| `observed` | `object` | `{capability, evidence, file, lineno, finding_id}`, plus `send_kind` (`"HTTP"`, `"websocket"`, or `"socket"`) for `closed_world_contradicted`; `finding_id` matches an entry in `findings` |
+| `reachability_path` | `array<string>` | Call chain from the tool's entry point to the function containing the sink |
+| `additional_observations` | `array` | Other contradicting sinks for the same tool and rule: `{capability, evidence, file, lineno, finding_id, reachability_path}` |
+| `message` | `string` | Human-readable summary |
+| `mismatch_id` | `string` | 12-character stable id for (tool, entry point file, rule) |
 
 ---
 
@@ -137,7 +176,7 @@ Each element of `other_languages` (populated only when no Python files were foun
 
 ```json
 {
-  "schema_version": "1",
+  "schema_version": "1.1",
   "generated_at": "2025-10-01T14:23:00Z",
   "reachscan_version": "0.1.0",
   "target": "pypi:openai-agents==0.0.19",
@@ -170,6 +209,7 @@ Each element of `other_languages` (populated only when no Python files were foun
       }
     }
   ],
+  "annotation_mismatches": [],
   "other_languages": [],
   "static_analysis_note": "This report reflects code patterns. It does not prove runtime behavior or exploitability."
 }
