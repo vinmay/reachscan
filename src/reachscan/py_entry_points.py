@@ -68,6 +68,7 @@ from reachscan.py_annotations import (
     annotations_from_call,
     annotations_from_expr,
     declared_tools,
+    make_external_resolver,
 )
 
 # ---------------------------------------------------------------------------
@@ -960,9 +961,14 @@ def _iter_detectable_nodes(parent: ast.AST):
             yield from _iter_detectable_nodes(node)  # recurse into class body only
 
 
-def detect_py_entry_points(file_path: str, content: str) -> List[EntryPoint]:
+def detect_py_entry_points(
+    file_path: str, content: str, root: Optional[Path] = None
+) -> List[EntryPoint]:
     """
     Scan a single Python file's content for LLM entry points.
+
+    root (optional) is the project root. When given, MCP annotation constants
+    imported from other project files can be resolved (one hop).
 
     Returns a list of EntryPoint objects, deduplicated by (lineno, name).
     """
@@ -1037,7 +1043,10 @@ def detect_py_entry_points(file_path: str, content: str) -> List[EntryPoint]:
                         results.append(ep)
                 break
 
-    _attach_mcp_annotations(tree, results, ModuleContext.from_tree(tree, imports))
+    ctx = ModuleContext.from_tree(tree, imports)
+    if root is not None:
+        ctx.external = make_external_resolver(Path(root).resolve(), Path(file_path).resolve(), ctx)
+    _attach_mcp_annotations(tree, results, ctx)
     return results
 
 
@@ -1095,19 +1104,19 @@ def scan_py_files(root: Path) -> List[EntryPoint]:
 
     if root.is_file():
         if root.suffix == ".py" and not _is_excluded_py_file(root):
-            _scan_one_py(root, results)
+            _scan_one_py(root, results, root.parent)
         return results
 
     for p in root.rglob("*.py"):
         if not _is_excluded_py_file(p):
-            _scan_one_py(p, results)
+            _scan_one_py(p, results, root)
 
     return results
 
 
-def _scan_one_py(path: Path, results: List[EntryPoint]) -> None:
+def _scan_one_py(path: Path, results: List[EntryPoint], root: Optional[Path] = None) -> None:
     try:
         content = path.read_text(encoding="utf-8", errors="ignore")
     except Exception:
         return
-    results.extend(detect_py_entry_points(str(path), content))
+    results.extend(detect_py_entry_points(str(path), content, root))

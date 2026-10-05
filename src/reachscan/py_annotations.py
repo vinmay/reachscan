@@ -25,9 +25,16 @@ So an absent destructiveHint counts as true only when readOnlyHint is false
 (explicitly or by default). When readOnlyHint is true it counts as false, and
 when readOnlyHint is unresolvable it is unresolvable too.
 
+Hint spelling: the MCP Python SDK 1.x accepts only camelCase fields
+(readOnlyHint) and silently ignores snake_case ones (read_only_hint) because
+extra fields are allowed; SDK 2.x accepts both. A snake_case hint therefore
+means different things depending on the SDK version, so it is unresolvable
+unless the camelCase spelling is also given.
+
 Known limitations:
-  - References are followed one hop, to a module-level assignment in the same
-    file. Imported constants and function return values are unresolvable.
+  - References are followed one hop: to a module-level assignment in the same
+    file, or (when a project root is given) in the project file it is
+    imported from. Function return values and deeper chains are unresolvable.
   - Tools registered with mcp.add_tool(fn, annotations=...) are not detected
     as entry points, so their annotations are not read.
 """
@@ -36,7 +43,9 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from functools import lru_cache
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Tuple
 
 SPEC_VERSION = "2026-07-28"
 
@@ -45,6 +54,13 @@ DEFAULT = "default"
 UNRESOLVABLE = "unresolvable"
 
 HINT_KEYS = ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
+# snake_case spellings: honored by MCP Python SDK 2.x, ignored by 1.x.
+SNAKE_HINT_KEYS = {
+    "read_only_hint": "readOnlyHint",
+    "destructive_hint": "destructiveHint",
+    "idempotent_hint": "idempotentHint",
+    "open_world_hint": "openWorldHint",
+}
 
 
 @dataclass
@@ -94,6 +110,10 @@ class ModuleContext:
     assignments: Dict[str, ast.expr] = field(default_factory=dict)
     # String class attributes, e.g. enum members: {("GitTools", "STATUS"): "git_status"}
     class_strings: Dict[tuple, str] = field(default_factory=dict)
+    # Module-level `from M import N [as L]`: {L: (M, level, N)}
+    import_from: Dict[str, Tuple[str, int, str]] = field(default_factory=dict)
+    # Resolves an imported name to (expression, defining module's context), or None.
+    external: Optional[Callable[[str], Optional[Tuple[ast.expr, "ModuleContext"]]]] = None
 
     @classmethod
     def from_tree(cls, tree: ast.Module, imports: Dict[str, str]) -> "ModuleContext":
@@ -124,7 +144,15 @@ class ModuleContext:
                         and isinstance(item.value, ast.Constant)
                         and isinstance(item.value.value, str)):
                     class_strings[(stmt.name, item.targets[0].id)] = item.value.value
-        return cls(imports=imports, assignments=assignments, class_strings=class_strings)
+        import_from: Dict[str, Tuple[str, int, str]] = {}
+        for stmt in tree.body:
+            if isinstance(stmt, ast.ImportFrom):
+                for alias in stmt.names:
+                    import_from[alias.asname or alias.name] = (
+                        stmt.module or "", stmt.level, alias.name
+                    )
+        return cls(imports=imports, assignments=assignments, class_strings=class_strings,
+                   import_from=import_from)
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +213,7 @@ def _raw_hints(node: ast.expr, ctx: ModuleContext, depth: int = 0):
     if _is_tool_annotations_call(node):
         raw: Dict[str, object] = {}
         spread = False
+        snake = set()
         for kw in node.keywords:
             if kw.arg is None:
                 spread = True
@@ -192,6 +221,10 @@ def _raw_hints(node: ast.expr, ctx: ModuleContext, depth: int = 0):
                 value = _hint_value(kw.value, ctx)
                 if value is not None:
                     raw[kw.arg] = value
+            elif kw.arg in SNAKE_HINT_KEYS:
+                snake.add(SNAKE_HINT_KEYS[kw.arg])
+        for key in snake:
+            raw.setdefault(key, _MISSING)  # SDK-version-dependent spelling
         if spread or node.args:
             for key in HINT_KEYS:
                 raw.setdefault(key, _MISSING)
@@ -200,6 +233,7 @@ def _raw_hints(node: ast.expr, ctx: ModuleContext, depth: int = 0):
     if isinstance(node, ast.Dict):
         raw = {}
         spread = False
+        snake_dict_keys = set()
         for key_node, value_node in zip(node.keys, node.values):
             if key_node is None:
                 spread = True
@@ -208,8 +242,12 @@ def _raw_hints(node: ast.expr, ctx: ModuleContext, depth: int = 0):
                 value = _hint_value(value_node, ctx)
                 if value is not None:
                     raw[key_node.value] = value
+            elif isinstance(key_node, ast.Constant) and key_node.value in SNAKE_HINT_KEYS:
+                snake_dict_keys.add(SNAKE_HINT_KEYS[key_node.value])
             elif not isinstance(key_node, ast.Constant):
                 spread = True  # computed key could name any hint
+        for key in snake_dict_keys:
+            raw.setdefault(key, _MISSING)  # SDK-version-dependent spelling
         if spread:
             for key in HINT_KEYS:
                 raw.setdefault(key, _MISSING)
@@ -219,6 +257,11 @@ def _raw_hints(node: ast.expr, ctx: ModuleContext, depth: int = 0):
         ref = ctx.assignments.get(node.id)
         if ref is not None:
             return _raw_hints(ref, ctx, depth + 1)
+        if node.id in ctx.import_from and ctx.external is not None:
+            resolved = ctx.external(node.id)
+            if resolved is not None:
+                expr, ext_ctx = resolved
+                return _raw_hints(expr, ext_ctx, depth + 1)
 
     # Anything else: a reference or expression we can't resolve statically.
     return {key: _MISSING for key in HINT_KEYS}, True
@@ -323,3 +366,42 @@ def declared_tools(nodes: List[ast.AST], ctx: ModuleContext) -> List[DeclaredToo
                 annotations=annotations_from_call(node, ctx),
             ))
     return results
+
+
+# ---------------------------------------------------------------------------
+# Cross-file resolution (one hop into project files)
+# ---------------------------------------------------------------------------
+
+@lru_cache(maxsize=512)
+def _parse_module_context(path: str) -> Optional[ModuleContext]:
+    try:
+        tree = ast.parse(Path(path).read_text(encoding="utf-8", errors="ignore"))
+    except (SyntaxError, ValueError, OSError):
+        return None
+    from reachscan.py_entry_points import _collect_imports  # local import: avoids a cycle
+    return ModuleContext.from_tree(tree, _collect_imports(tree))
+
+
+def make_external_resolver(root: Path, current_file: Path, ctx: ModuleContext):
+    """Build a resolver for names imported into current_file from project files.
+
+    The returned callable maps a local name to (expression, defining module's
+    context) when the name is imported with `from M import N` from a file under
+    root and N is a single module-level assignment there. The defining
+    module's context has no resolver of its own, so resolution stops after one
+    hop.
+    """
+    from reachscan.call_graph import _resolve_module_to_file  # local import: avoids a cycle
+
+    def resolve(local: str):
+        module, level, name = ctx.import_from[local]
+        target = _resolve_module_to_file(module, root, current_file, level) if module else None
+        if target is None:
+            return None
+        ext_ctx = _parse_module_context(target)
+        if ext_ctx is None:
+            return None
+        expr = ext_ctx.assignments.get(name)
+        return (expr, ext_ctx) if expr is not None else None
+
+    return resolve

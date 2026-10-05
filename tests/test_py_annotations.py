@@ -230,13 +230,40 @@ def test_fastmcp_v2_import():
     assert ep.annotations.read_only.value is True
 
 
-def test_title_and_unknown_keys_ignored():
+def test_title_ignored():
     ep = _tool('''
-        @mcp.tool(annotations={"title": "Nice", "read_only_hint": True})
+        @mcp.tool(annotations={"title": "Nice"})
         def t(): ...
     ''')
     assert ep.annotations.declared
-    assert ep.annotations.read_only.source == DEFAULT  # snake_case key isn't a spec field
+    assert ep.annotations.read_only.source == DEFAULT
+
+
+def test_snake_case_hint_is_unresolvable():
+    """read_only_hint is honored by MCP SDK 2.x but silently ignored by 1.x."""
+    ep = _tool('''
+        @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
+        def t(): ...
+    ''')
+    assert ep.annotations.read_only.source == UNRESOLVABLE
+    assert ep.annotations.destructive.source == UNRESOLVABLE  # depends on readOnlyHint
+    assert ep.annotations.open_world.source == DEFAULT
+
+
+def test_snake_case_dict_key_is_unresolvable():
+    ep = _tool('''
+        @mcp.tool(annotations={"open_world_hint": False})
+        def t(): ...
+    ''')
+    assert ep.annotations.open_world.source == UNRESOLVABLE
+
+
+def test_camel_case_wins_when_both_spellings_given():
+    ep = _tool('''
+        @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, read_only_hint=True))
+        def t(): ...
+    ''')
+    assert ep.annotations.read_only.source == EXPLICIT
 
 
 def test_non_mcp_tool_has_no_annotations():
@@ -383,3 +410,82 @@ def serve():
     assert tools["git_status"].read_only.value is True
     assert tools["git_reset"].destructive.value is True
     assert tools["git_reset"].destructive.source == EXPLICIT
+
+
+# ---------------------------------------------------------------------------
+# Cross-file constants (one hop into project files)
+# ---------------------------------------------------------------------------
+
+def _write(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(textwrap.dedent(text), encoding="utf-8")
+
+
+def _scan_tools(root):
+    from reachscan.py_entry_points import scan_py_files
+    return {ep.name: ep for ep in scan_py_files(root) if ep.annotations is not None}
+
+
+def test_cross_file_constant_resolves(tmp_path):
+    _write(tmp_path / "pkg" / "__init__.py", "")
+    _write(tmp_path / "pkg" / "annotations.py", """
+        from mcp import types as mcp_types
+        READ_ONLY = mcp_types.ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+    """)
+    _write(tmp_path / "pkg" / "server.py", """
+        from mcp.server.fastmcp import FastMCP
+        from pkg.annotations import READ_ONLY
+        mcp = FastMCP("x")
+
+        @mcp.tool(annotations=READ_ONLY)
+        def t(): ...
+    """)
+    ann = _scan_tools(tmp_path)["t"].annotations
+    assert not ann.unresolved_reference
+    assert ann.read_only.value is True and ann.read_only.source == EXPLICIT
+    assert ann.open_world.value is False
+
+
+def test_cross_file_relative_import_resolves(tmp_path):
+    _write(tmp_path / "srv" / "__init__.py", "")
+    _write(tmp_path / "srv" / "shared.py", 'MUTATE = {"readOnlyHint": False, "destructiveHint": False}\n')
+    _write(tmp_path / "srv" / "tools.py", """
+        from mcp.server.fastmcp import FastMCP
+        from .shared import MUTATE
+        mcp = FastMCP("x")
+
+        @mcp.tool(annotations=MUTATE)
+        def t(): ...
+    """)
+    ann = _scan_tools(tmp_path)["t"].annotations
+    assert ann.destructive.value is False and ann.destructive.source == EXPLICIT
+
+
+def test_cross_file_stops_after_one_hop(tmp_path):
+    _write(tmp_path / "pkg" / "__init__.py", "")
+    _write(tmp_path / "pkg" / "base.py", "from mcp.types import ToolAnnotations\nRO = ToolAnnotations(readOnlyHint=True)\n")
+    _write(tmp_path / "pkg" / "mid.py", "from pkg.base import RO\nALIAS = RO\n")
+    _write(tmp_path / "pkg" / "server.py", """
+        from mcp.server.fastmcp import FastMCP
+        from pkg.mid import ALIAS
+        mcp = FastMCP("x")
+
+        @mcp.tool(annotations=ALIAS)
+        def t(): ...
+    """)
+    ann = _scan_tools(tmp_path)["t"].annotations
+    assert ann.unresolved_reference
+    assert ann.read_only.source == UNRESOLVABLE
+
+
+def test_cross_file_import_from_outside_project_is_unresolvable(tmp_path):
+    _write(tmp_path / "server.py", """
+        from mcp.server.fastmcp import FastMCP
+        from some_installed_lib.presets import READ_ONLY
+        mcp = FastMCP("x")
+
+        @mcp.tool(annotations=READ_ONLY)
+        def t(): ...
+    """)
+    ann = _scan_tools(tmp_path)["t"].annotations
+    assert ann.unresolved_reference
