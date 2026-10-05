@@ -2,13 +2,13 @@
 
 All notable changes to reachscan are documented here. This project follows [Semantic Versioning](https://semver.org/). The JSON output schema has its own version (`schema_version`), documented in [`docs/schema_v1.md`](docs/schema_v1.md).
 
-## [0.3.0rc1] - 2026-10-05 (release candidate)
+## [0.3.0] - 2026-10-05
 
 ### Added
 
 - **MCP annotation verification (Python).** reachscan reads the `ToolAnnotations` hints that MCP tools declare (FastMCP `@mcp.tool(annotations=...)` and lowlevel `types.Tool(...)`) and reports an **annotation mismatch** when a call path from that tool contradicts an explicit hint:
   - `readOnlyHint: true` + reachable WRITE, EXECUTE, or DYNAMIC (high);
-  - `openWorldHint: false` + reachable SEND (high);
+  - `openWorldHint: false` + a reachable outbound HTTP, websocket, or raw socket connect (high). Socket connects to a literal loopback host (`localhost`, `127.0.0.0/8`, `::1`), calls into the project's own modules, database drivers, and other protocol clients don't count;
   - `destructiveHint: false` + a reachable delete, move/rename, or truncating write (medium).
 
   Every mismatch includes the call path from the tool to the contradicting code, and a contradiction without one isn't reported. Absent hints use the MCP spec's conservative defaults (schema 2026-07-28) and aren't checked. Hints that can't be resolved statically are skipped and listed under `--explain`. Lowlevel tools are linked to their branch in the `call_tool` handler for `if name == ...` / `match name:` dispatch. Mismatches appear in a new "Annotation Mismatches" section of the text report, in JSON, and in SARIF as rule `mcp-risk-mismatch`.
@@ -22,7 +22,11 @@ All notable changes to reachscan are documented here. This project follows [Sema
 
 - **New runtime dependencies:** `tree-sitter`, `tree-sitter-typescript`, `tree-sitter-javascript` (pure pip wheels).
 - The combined-risk presence fallback (used when no entry points were detected) is decided separately for Python and TypeScript/JavaScript findings. Python results are the same as in 0.2.0.
-- README: a quick start by audience, setup for the Claude Code / Codex plugin, CI docs led by the [GitHub Action](https://github.com/marketplace/actions/reachscan), and a "what works today" status table.
+- README: a quick start by audience, setup for the Claude Code / Codex plugin, CI docs led by the [GitHub Action](https://github.com/marketplace/actions/reachscan), a "what works today" status table, and the call graph's known limitations.
+
+### Known limitations
+
+- The Python call graph doesn't resolve method calls on object instances (`obj.method()`, `self.client.method()`), chained attribute calls, `super()`, or inherited methods. Sinks reached only that way show as unreachable or unknown and can't produce annotation mismatches.
 
 ## [0.2.0] - 2026-10-05
 
@@ -58,7 +62,7 @@ JSON output is unchanged. It is still schema v1.
 
 - First release.
 
-[0.3.0rc1]: https://github.com/vinmay/reachscan/compare/v0.2.0...v0.3.0rc1
+[0.3.0]: https://github.com/vinmay/reachscan/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/vinmay/reachscan/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/vinmay/reachscan/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/vinmay/reachscan/releases/tag/v0.1.0

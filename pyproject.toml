@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reachscan"
-version = "0.3.0rc1"
+version = "0.3.0"
 description = "Reachability-based capability scanner for AI agent and MCP server codebases."
 readme = "README.md"
 authors = [{name = "Vinmay Nair", email = "vinmay.nair@gmail.com"}]

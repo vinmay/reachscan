@@ -65,6 +65,13 @@ Knowing a capability exists in a codebase is useful. Knowing whether the LLM can
 
 The call graph follows up to 8 hops from each entry point. Call paths are shown in the report so you can see exactly how the LLM reaches a capability.
 
+**Known limitations of the Python call graph.** It resolves:
+- plain calls to project functions (`helper()`, including ones imported from another project file);
+- `self.method()` calls to methods defined in the same class and file;
+- `module.function()` calls.
+
+It doesn't yet resolve method calls on object instances (`client.fetch()`, `self.db.query()`), chained attribute calls (`a.b.c()`), `super().method()`, or inherited methods. A capability reached only through such a call shows as unreachable or unknown, and can't produce an annotation mismatch.
+
 ### Entry point detection — Python
 
 `reachscan` recognises LLM-callable functions across all major Python agent frameworks:
