@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 
 from reachscan.analysis.finding_enrichment import CAPABILITY_DETAILS
+from reachscan.analysis.impact import finding_language
 from reachscan.schema import _get_tool_version
 
 SARIF_SCHEMA_URI = "https://json.schemastore.org/sarif-2.1.0.json"
@@ -292,6 +293,39 @@ def _risk_result(
     return result
 
 
+_LANGUAGE_LABELS = {"python": "Python", "ts": "TypeScript/JavaScript"}
+_ENTRY_POINT_KEYS = {"python": "py_entry_points", "ts": "ts_entry_points"}
+
+
+def _no_entry_point_notifications(
+    results: Dict[str, Any], omitted_by_language: Dict[str, int]
+) -> List[Dict[str, Any]]:
+    """One warning per language that has hidden findings but no detected entry points.
+
+    Without entry points, reachability isn't evaluated for that language, so
+    its findings are left out of the default SARIF results. The notification
+    says so, so an empty Security tab isn't mistaken for a clean scan.
+    """
+    notifications = []
+    for language, label in _LANGUAGE_LABELS.items():
+        hidden = omitted_by_language.get(language, 0)
+        if hidden == 0 or results.get(_ENTRY_POINT_KEYS[language]):
+            continue
+        notifications.append({
+            "level": "warning",
+            "message": {
+                "text": (
+                    f"No entry points detected for {label}; reachability not evaluated; "
+                    f"{hidden} findings not shown. Use --sarif-include-unreachable "
+                    "to include them."
+                )
+            },
+            "descriptor": {"id": "reachscan/no-entry-points"},
+            "properties": {"language": language, "findingsNotShown": hidden},
+        })
+    return notifications
+
+
 def build_sarif(results: Dict[str, Any], include_unreachable: bool = False) -> Dict[str, Any]:
     """Convert scanner output to a SARIF 2.1.0 log dict."""
     rules = _build_rules()
@@ -303,10 +337,13 @@ def build_sarif(results: Dict[str, Any], include_unreachable: bool = False) -> D
     all_findings = [item.get("finding", {}) for item in items]
     sarif_results: List[Dict[str, Any]] = []
     omitted = 0
+    omitted_by_language: Dict[str, int] = {}
     for item in items:
         state = item.get("finding", {}).get("reachability")
         if not include_unreachable and state not in DEFAULT_STATES:
             omitted += 1
+            language = finding_language(item.get("finding", {}))
+            omitted_by_language[language] = omitted_by_language.get(language, 0) + 1
             continue
         sarif_results.append(_finding_result(item, locator, rule_index))
 
@@ -325,6 +362,7 @@ def build_sarif(results: Dict[str, Any], include_unreachable: bool = False) -> D
             }
         },
         "results": sarif_results,
+        "invocations": [{"executionSuccessful": True}],
         "properties": {
             "target": results.get("target", ""),
             "sourceType": results.get("source_type", "local"),
@@ -334,6 +372,9 @@ def build_sarif(results: Dict[str, Any], include_unreachable: bool = False) -> D
             "omittedFindings": omitted,
         },
     }
+    notifications = _no_entry_point_notifications(results, omitted_by_language)
+    if notifications:
+        run["invocations"][0]["toolExecutionNotifications"] = notifications
     if root is not None:
         run["originalUriBaseIds"] = {SRCROOT: {"uri": root.as_uri() + "/"}}
     return {"$schema": SARIF_SCHEMA_URI, "version": SARIF_VERSION, "runs": [run]}

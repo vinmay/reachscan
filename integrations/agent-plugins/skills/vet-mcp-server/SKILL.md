@@ -9,9 +9,15 @@ reachscan is a static analysis CLI. It finds what code can do (EXECUTE, READ, WR
 
 Base every claim on the reachscan JSON. Do not add capabilities, risks, or vulnerabilities that are not in the output, and do not guess about code you have not seen.
 
-## 1. Check that reachscan is installed
+## 1. Check that you can run reachscan
 
-Run:
+This skill runs the reachscan CLI on the user's machine, so it needs a shell, as in Claude Code or Codex. If you can't run shell commands here (for example in a chat app without a terminal), tell the user:
+
+> Vetting an MCP server with reachscan needs a local terminal, so it works in Claude Code or Codex but not here. You can also run it yourself: `pipx install reachscan`, then `reachscan <github-url or pypi:package>`.
+
+Then stop. Don't guess at findings without running the scan.
+
+If you can run commands, check that reachscan is installed:
 
 ```bash
 command -v reachscan
