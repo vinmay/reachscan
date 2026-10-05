@@ -3,34 +3,45 @@
 from typing import Any, Dict, Iterable, List, Set
 
 
-def _capability_set(findings: Iterable[Dict[str, Any]]) -> Set[str]:
-    return {f.get("capability") for f in findings if f.get("capability")}
+_COUNTED_STATES = {"reachable", "module_level"}
+_UNEVALUATED_STATES = {None, "no_entry_points"}
+_TS_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cts", ".cjs")
+
+
+def _language(finding: Dict[str, Any]) -> str:
+    """"ts" for TypeScript/JavaScript files, "python" otherwise (including no file)."""
+    file = str(finding.get("file") or "").lower()
+    return "ts" if file.endswith(_TS_SUFFIXES) else "python"
+
+
+def risk_counted_findings(findings: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return the findings that count toward combined risks.
+
+    A finding counts if its reachability is "reachable" or "module_level"
+    (module-level code runs unconditionally). When no finding of a language
+    carries an evaluated reachability state (all are missing/None or
+    "no_entry_points"), every finding of that language counts by presence.
+
+    The presence fallback is decided separately for Python and for
+    TypeScript/JavaScript findings, so TS states in a mixed project don't
+    switch off the fallback for Python findings (or the other way round).
+    """
+    by_language: Dict[str, List[Dict[str, Any]]] = {}
+    for f in findings:
+        by_language.setdefault(_language(f), []).append(f)
+    counted: List[Dict[str, Any]] = []
+    for group in by_language.values():
+        evaluated = any(f.get("reachability") not in _UNEVALUATED_STATES for f in group)
+        if evaluated:
+            counted.extend(f for f in group if f.get("reachability") in _COUNTED_STATES)
+        else:
+            counted.extend(group)
+    return counted
 
 
 def _reachable_capability_set(findings: Iterable[Dict[str, Any]]) -> Set[str]:
-    """Return capabilities that have at least one reachable finding.
-
-    A finding is considered reachable if its reachability field is "reachable"
-    or "module_level" (module-level code runs unconditionally).
-    Falls back to the full capability set when no reachability data is present,
-    including when no entry points were detected ("no_entry_points"), since
-    reachability could not be evaluated at all in that case.
-    """
-    reachable_states = {"reachable", "module_level"}
-    no_data_states = {None, "no_entry_points"}
-    reachable_caps: Set[str] = set()
-    has_reachability_data = False
-    for f in findings:
-        state = f.get("reachability")
-        if state not in no_data_states:
-            has_reachability_data = True
-        cap = f.get("capability")
-        if cap and state in reachable_states:
-            reachable_caps.add(cap)
-    # If no finding has reachability data (e.g. old scan format), fall back
-    if not has_reachability_data:
-        return _capability_set(findings)
-    return reachable_caps
+    """Capabilities with at least one finding that counts toward combined risks."""
+    return {f["capability"] for f in risk_counted_findings(findings) if f.get("capability")}
 
 
 def _has_destructive_write(findings: Iterable[Dict[str, Any]]) -> bool:

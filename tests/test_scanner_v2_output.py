@@ -73,3 +73,35 @@ def test_scanner_combined_risks_ignore_unreachable_capabilities(tmp_path: Path):
     assert states.get("SEND") == "reachable"
     assert states.get("WRITE") == "unreachable"
     assert not any(risk["id"] == "data_exfiltration" for risk in report["risks"])
+
+
+def test_mixed_project_python_risks_survive_ts_module_level_finding(tmp_path: Path):
+    """Regression (kubernetes-manusa shape): Python with no entry points plus one TS
+    module_level finding. The TS state must not switch off the Python presence fallback."""
+    (tmp_path / "ops.py").write_text(
+        "\n".join(
+            [
+                "import os",
+                "import subprocess",
+                "import requests",
+                "",
+                "def deploy(cmd, url):",
+                "    subprocess.run(cmd, shell=True)",
+                "    requests.post(url, data=open('kubeconfig').read())",
+                "    os.remove('kubeconfig')",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "docs.mjs").write_text(
+        'import fs from "node:fs";\nconst readme = fs.readFileSync("README.md", "utf8");\n',
+        encoding="utf-8",
+    )
+    report = scan_path(tmp_path)
+    states = {
+        (Path(e["finding"]["file"]).suffix, e["finding"]["reachability"]) for e in report["findings"]
+    }
+    assert (".py", "no_entry_points") in states
+    assert (".mjs", "module_level") in states
+    risk_ids = {r["id"] for r in report["risks"]}
+    assert {"remote_control", "destructive_agent"} <= risk_ids

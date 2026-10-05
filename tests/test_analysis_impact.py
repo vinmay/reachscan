@@ -82,3 +82,50 @@ def test_no_entry_points_falls_back_to_all_capabilities():
     ]
     risks = analyze_combined_capabilities(findings)
     assert any(r["id"] == "secret_leak" for r in risks)
+
+
+def test_mixed_project_python_no_entry_points_still_count_by_presence():
+    """Evaluated TS states must not switch off the presence fallback for Python findings."""
+    findings = [
+        {"capability": "EXECUTE", "evidence": "subprocess.run()", "file": "tools.py",
+         "reachability": "no_entry_points"},
+        {"capability": "SEND", "evidence": "requests.post()", "file": "tools.py",
+         "reachability": "no_entry_points"},
+        {"capability": "READ", "evidence": "fs.readFileSync()", "file": "build.ts",
+         "reachability": "module_level"},
+    ]
+    risks = analyze_combined_capabilities(findings)
+    assert any(r["id"] == "remote_control" for r in risks)
+    assert any(r["id"] == "secret_leak" for r in risks)  # READ (TS module_level) + SEND (Python)
+
+
+def test_ts_fallback_decided_separately_from_python():
+    """TS keeps its own rule: once a TS finding is evaluated, TS no_entry_points don't count."""
+    findings = [
+        {"capability": "EXECUTE", "evidence": "child_process.exec()", "file": "a.ts",
+         "reachability": "no_entry_points"},
+        {"capability": "SEND", "evidence": "fetch()", "file": "a.ts",
+         "reachability": "no_entry_points"},
+        {"capability": "SECRETS", "evidence": "process.env.KEY", "file": "a.ts",
+         "reachability": "module_level"},
+        {"capability": "READ", "evidence": "open()", "file": "x.py", "reachability": "reachable"},
+    ]
+    assert analyze_combined_capabilities(findings) == []
+
+
+def test_ts_only_without_evaluated_states_counts_by_presence():
+    findings = [
+        {"capability": "EXECUTE", "evidence": "child_process.exec()", "file": "a.ts",
+         "reachability": "no_entry_points"},
+        {"capability": "SEND", "evidence": "fetch()", "file": "b.mjs",
+         "reachability": "no_entry_points"},
+    ]
+    assert any(r["id"] == "remote_control" for r in analyze_combined_capabilities(findings))
+
+
+def test_unknown_and_unreachable_do_not_count():
+    findings = [
+        {"capability": "EXECUTE", "evidence": "subprocess.run()", "reachability": "unknown"},
+        {"capability": "SEND", "evidence": "requests.post()", "reachability": "unreachable"},
+    ]
+    assert analyze_combined_capabilities(findings) == []

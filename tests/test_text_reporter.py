@@ -240,3 +240,12 @@ def test_module_level_file_list_is_capped():
     assert "      - scripts/s09.ts" in out
     assert "      - scripts/s10.ts" not in out
     assert "… and 3 more files" in out
+
+
+def test_combined_risk_mixing_presence_and_module_level_not_labeled():
+    """Python presence-counted EXECUTE + TS module_level SEND: not module-level only."""
+    results = _risk_results(
+        {"EXECUTE": ["no_entry_points"], "SEND": ["module_level"]},
+        {"EXECUTE": ["tools.py"], "SEND": ["scripts/release.ts"]},
+    )
+    assert "from module-level code only" not in human_report(results)
