@@ -93,6 +93,9 @@ def _client_label(expr: ast.expr, imps) -> Optional[str]:
         return None
     if not isinstance(expr, ast.Call):
         return None
+    from reachscan.detectors.network import is_in_process_client
+    if is_in_process_client(expr):
+        return None  # e.g. httpx.AsyncClient(transport=ASGITransport(app)): no network
     func = expr.func
     if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
         imported = imps.get(func.value.id)

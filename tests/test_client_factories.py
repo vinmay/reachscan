@@ -309,3 +309,17 @@ def test_no_duplicate_when_per_file_detector_already_flags_the_line(tmp_path):
     report = scan_path(tmp_path)
     sends = [e["finding"] for e in report["findings"] if e["finding"]["capability"] == "SEND"]
     assert [(Path(f["file"]).name, f["lineno"]) for f in sends] == [("server.py", 5)]
+
+
+def test_factory_returning_in_process_client_is_not_a_factory(tmp_path):
+    _write(tmp_path, {"m.py": '''\
+        from httpx import AsyncClient, ASGITransport
+
+        def build_client(app):
+            return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+
+        async def use(app):
+            async with build_client(app) as client:
+                return await client.post("/memory", json={})
+        '''})
+    assert _sends(tmp_path) == []
