@@ -211,7 +211,7 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
         if unknown:
             lines.append(
                 f"  {len(unknown):>4} unknown       — reachability not determined "
-                "(dynamic dispatch, parse failure, or TypeScript call paths, not traced yet)"
+                "(dynamic dispatch or parse failure)"
             )
         if no_entry:
             lines.append(f"  {len(no_entry):>4} no entry points — no LLM entry points detected for this code")
@@ -270,13 +270,9 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
         )
         lines.append("")
 
-    if results.get("num_files_scanned", 0) == 0:
+    if results.get("num_files_scanned", 0) == 0 and not ts_entry_points:
         other_languages = results.get("other_languages", [])
-        if ts_entry_points:
-            lines.append("⚠  TypeScript call paths are not traced yet.")
-            lines.append("   Findings show what the TypeScript code can do, not which tool reaches it.")
-            lines.append("   Entry points above show what the LLM can call.")
-        elif ts_files_scanned > 0:
+        if ts_files_scanned > 0:
             lines.append(
                 f"Found {ts_files_scanned} TypeScript/JavaScript files, "
                 "but no supported entry-point registrations were detected."
@@ -290,10 +286,7 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
             )
             lines.append(f"No Python or TypeScript files were found for analysis.")
             lines.append(f"Detected: {lang_summary}")
-            lines.append(
-                "reachscan currently supports Python (full analysis) and TypeScript/JavaScript "
-                "(entry points and capabilities)."
-            )
+            lines.append("reachscan currently supports Python and TypeScript/JavaScript.")
         else:
             lines.append("No Python or TypeScript files were found for analysis.")
         lines.append("")

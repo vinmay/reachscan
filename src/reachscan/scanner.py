@@ -12,12 +12,13 @@ from reachscan.analysis.finding_enrichment import enrich_finding
 from reachscan.analysis.impact import analyze_combined_capabilities
 from reachscan.source_loader import ProgressCallback
 from reachscan.source_loader import resolve_target
-from reachscan.ts_entry_points import analyze_ts_file, iter_ts_files
+from reachscan.ts_entry_points import TSEntryPoint, analyze_ts_file, iter_ts_files
+from reachscan.ts_callgraph import build_ts_graph, display_name, ts_reachability
 from reachscan.ts_capabilities import scan_ts_capabilities
 from reachscan.detectors.client_factories import scan_client_factory_sends
 from reachscan.py_entry_points import scan_py_files, EntryPoint as PyEntryPoint
 from reachscan.call_graph import build_call_graph
-from reachscan.reachability import analyze_reachability
+from reachscan.reachability import DISPLAY_DEPTH, TRAVERSAL_DEPTH, analyze_reachability
 from reachscan.analysis.annotation_mismatch import (
     find_annotation_mismatches,
     unresolvable_annotations,
@@ -324,6 +325,7 @@ def scan_path(
     ts_files = iter_ts_files(path)
     ts_entry_points = []
     ts_capability_results = []
+    ts_trees = {}
     num_ts_files_unparsed = 0
     for p in ts_files:
         eps, root = analyze_ts_file(p)
@@ -331,12 +333,31 @@ def scan_path(
         if root is None:
             num_ts_files_unparsed += 1
             continue
+        ts_trees[str(p)] = root
         ts_capability_results.extend(scan_ts_capabilities(str(p), root))
 
-    # TS call paths aren't traced yet, so function-level TS findings are
-    # "unknown" when TS entry points exist (no_entry_points otherwise).
-    # Top-level TS code runs on import: module_level.
-    ts_function_state = "unknown" if ts_entry_points else "no_entry_points"
+    # TS call graph: tool handlers are the entry nodes. Registrations only the
+    # graph pass recognises (wrappers, xmcp, tool objects by identifier, dynamic
+    # names) are added to the entry point list.
+    ts_graph = build_ts_graph(ts_trees, path) if ts_trees else None
+    if ts_graph is not None:
+        listed = {(ep.file, ep.lineno) for ep in ts_entry_points}
+        for h in ts_graph.handlers:
+            if (h.file, h.lineno) not in listed:
+                listed.add((h.file, h.lineno))
+                ts_entry_points.append(TSEntryPoint(
+                    name=h.name, file=h.file, lineno=h.lineno,
+                    pattern_type=h.pattern_type, confidence=0.80,
+                ))
+    ts_reached, ts_maybe = ts_reachability(ts_graph, TRAVERSAL_DEPTH) if ts_graph is not None else ({}, set())
+    # Not reached from any handler: unreachable, unless a file only the regex
+    # fallback could read registers tools (its handlers aren't in the graph).
+    if not ts_entry_points:
+        ts_function_state = "no_entry_points"
+    elif any(ep.fallback for ep in ts_entry_points):
+        ts_function_state = "unknown"
+    else:
+        ts_function_state = "unreachable"
     for result in ts_capability_results:
         enriched = enrich_finding(_normalize_finding(result.finding))
         finding_id, finding_ref = make_finding_id(
@@ -348,13 +369,32 @@ def scan_path(
         )
         enriched["finding_id"] = finding_id
         enriched["finding_ref"] = finding_ref
-        enriched.update({
+        fields = {
             "reachability": ts_function_state if result.in_function else "module_level",
             "entry_point_name": None,
             "reachability_path": None,
             "reachability_path_truncated": False,
             "reachability_path_locations": None,
-        })
+        }
+        node = ts_graph.by_start.get((str(result.finding.file), result.container)) \
+            if ts_graph is not None and result.container is not None else None
+        if node is not None and node in ts_maybe:
+            # Only an unresolved method call (e.g. on a tool instance) could reach it.
+            fields["reachability"] = "unknown"
+        if node is not None and node in ts_reached:
+            handler, node_path = ts_reached[node]
+            names = [display_name(ts_graph, n, handler) for n in node_path]
+            fields.update({
+                "reachability": "reachable",
+                "entry_point_name": handler.name,
+                "reachability_path": names,
+                "reachability_path_truncated": len(node_path) > DISPLAY_DEPTH,
+                "reachability_path_locations": [
+                    {"function": name, "file": n[0], "lineno": ts_graph.node_line.get(n)}
+                    for name, n in zip(names, node_path)
+                ],
+            })
+        enriched.update(fields)
         findings.append({"detector": result.detector, "finding": enriched})
 
     # aggregate capabilities

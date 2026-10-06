@@ -117,7 +117,9 @@ Registration calls are matched however they're formatted. Declaration files (`.d
 
 TypeScript and JavaScript code is also analyzed for capabilities: `child_process` and `execa` (EXECUTE), `fs` and `fs/promises` (READ/WRITE), `fetch`, `axios`, `got`, `undici`, `http(s)`, `net`, and WebSockets (SEND), `process.env`, `dotenv`, and `keytar` (SECRETS), `eval`, `new Function`, `vm`, and non-literal `import()`/`require()` (DYNAMIC), and `setInterval`, cron libraries, and worker threads (AUTONOMY). Imports are resolved first, so `regex.exec()` or a local `exec` helper isn't mistaken for `child_process.exec`.
 
-**Current limitation:** TypeScript call paths aren't traced yet. TypeScript findings inside functions are reported as `unknown` (or `no_entry_points` when no TS entry points exist), and top-level code that runs on import is reported as `module_level`. Unknown findings don't affect the exit code and are left out of SARIF by default. Python reachability is unaffected.
+TypeScript reachability works like Python's. Each tool's handler is an entry node, and the call graph follows direct calls to functions in the same file, relative imports (ESM, including `./x.js` → `x.ts`, CommonJS `require`, and namespace imports), `this.method()` within a class, and methods of object literals. Callbacks defined inside a function are treated as part of it. Method calls the graph can't resolve, such as `tool.execute()` on a class instance or on a tool object taken from a list, aren't followed: code that only such a call could reach is `unknown`. Other code that isn't on a path, including code reached only through computed calls (`table[name](...)`) or only from top-level code (for example the constructor of a module-level singleton), is `unreachable`. Path depth, states, and exit codes match the Python analysis.
+
+Handlers are found for the patterns above, and also for: `addTool(toolObject)` with a tool object defined in the project; tool-definition objects using `schema`, `parameters`, or `args` instead of `inputSchema`, with a `handler` or `execute` property or method (for example `defineTool({ ..., handler })`); objects passed to a project wrapper that itself calls `registerTool` / `tool` / `addTool`; [xmcp](https://xmcp.dev) file-based tools (a file exporting `metadata` and a default function, in projects that depend on xmcp); and `server.tool(...)` / `registerTool(...)` calls whose name isn't a literal (reported with the name `unknown`, in files that import an MCP SDK).
 
 ### Verifying MCP tool annotations
 
@@ -468,7 +470,7 @@ What works today:
 | Area | Status |
 |---|---|
 | Python | Capability detection, entry points for the frameworks above, call-graph reachability (up to 8 hops), MCP annotation verification |
-| TypeScript / JavaScript | Parsed with tree-sitter (no Node.js needed). Entry point detection and capability detection for all seven classes. Reachability through TS call paths is in progress: until then, TS findings inside functions are reported as `unknown` |
+| TypeScript / JavaScript | Parsed with tree-sitter (no Node.js needed). Entry point detection, capability detection for all seven classes, and reachability through TS call paths |
 | Scan targets | Local paths, GitHub URLs, PyPI packages (`pypi:name[==version]`), MCP HTTP endpoints (`mcp+https://...`) |
 | Output | Text report, JSON ([schema v1](docs/schema_v1.md)), SARIF 2.1.0 with call chains, `--explain` call traces |
 | CI | [GitHub Action](https://github.com/marketplace/actions/reachscan) with Security tab upload and a severity gate; exit codes for any other CI |
