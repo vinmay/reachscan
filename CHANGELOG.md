@@ -2,6 +2,12 @@
 
 All notable changes to reachscan are documented here. This project follows [Semantic Versioning](https://semver.org/). The JSON output schema has its own version (`schema_version`), documented in [`docs/schema_v1.md`](docs/schema_v1.md).
 
+## [Unreleased]
+
+### Fixed
+
+- **Sends through clients returned by project helpers are detected again.** A project function that returns an HTTP client on every path (`requests.Session()`, the `requests` module, `httpx.Client()` / `AsyncClient()`, `aiohttp.ClientSession()`, `urllib3.PoolManager()`, directly or through a local variable) is treated as a client factory. Send methods called on its result (`with get_session() as s: s.post(...)`, `client = await make_client(); await client.get(...)`, `make_client().get(...)`) are reported as SEND at the call site. Resolution is one hop, configuration calls such as `mount` stay non-evidence, and helpers returning other types or mixed types don't count. This restores sends hidden since 0.3.1 stopped counting client construction as a send. On the phase-3 corpus: 4 sends restored (all reachable), nothing else changes, and one `openWorldHint` annotation mismatch reappears with the actual `post` call as its sink.
+
 ## [0.3.1] - 2026-10-05
 
 ### Changed
