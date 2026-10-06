@@ -59,6 +59,7 @@ LOCAL_DB_MODULES = {"sqlite3", "aiosqlite", "duckdb"}
 # Config/type objects from HTTP libraries that do NOT make a network connection.
 HTTP_CONFIG_ATTRS = {
     "Timeout", "ClientTimeout", "HTTPTransport", "AsyncHTTPTransport",
+    "ASGITransport", "WSGITransport", "MockTransport",
     "Request", "Response", "Headers", "Cookies", "Subprotocol",
 }
 
@@ -76,6 +77,22 @@ LITERAL_URL_CALL_NAMES = {
     "get", "post", "put", "delete", "patch", "head", "options",
     "request", "urlopen", "open", "fetch", "send",
 }
+
+
+# httpx transports that keep requests inside the process (an ASGI/WSGI app or
+# a mock). A client built with one of these doesn't reach the network.
+IN_PROCESS_TRANSPORTS = {"ASGITransport", "WSGITransport", "MockTransport"}
+
+
+def is_in_process_client(call: ast.Call) -> bool:
+    """True for a client constructor call with transport=<in-process transport>(...)."""
+    for kw in call.keywords:
+        if kw.arg == "transport" and isinstance(kw.value, ast.Call):
+            f = kw.value.func
+            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+            if name in IN_PROCESS_TRANSPORTS:
+                return True
+    return False
 
 
 def _is_request_url(value: str) -> bool:
@@ -193,6 +210,8 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                         #   - qdrant_client.http.models.* (data-model classes, no network)
                         #   - known config/type objects that create no connection
                         last_part = full.rsplit(".", 1)[-1] if "." in full else full
+                        if full in HTTP_CLIENT_CONSTRUCTORS:
+                            continue  # creating a client (from httpx import AsyncClient) sends nothing
                         is_http_module = (
                             "urllib.request" in full
                             or (
@@ -222,7 +241,7 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
             target = node.targets[0]
             if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
                 resolved = resolve_name(node.value.func)
-                if resolved and resolved in HTTP_CLIENT_CONSTRUCTORS:
+                if resolved and resolved in HTTP_CLIENT_CONSTRUCTORS and not is_in_process_client(node.value):
                     client_vars[target.id] = resolved
         # Also track async with: async with httpx.AsyncClient() as client:
         if isinstance(node, (ast.With, ast.AsyncWith)):
@@ -230,7 +249,8 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
                 if (item.optional_vars and isinstance(item.optional_vars, ast.Name)
                         and isinstance(item.context_expr, ast.Call)):
                     resolved = resolve_name(item.context_expr.func)
-                    if resolved and resolved in HTTP_CLIENT_CONSTRUCTORS:
+                    if (resolved and resolved in HTTP_CLIENT_CONSTRUCTORS
+                            and not is_in_process_client(item.context_expr)):
                         client_vars[item.optional_vars.id] = resolved
 
     if client_vars:

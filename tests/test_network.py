@@ -119,3 +119,41 @@ session = requests.Session()
 session.mount("https://internal.example.com/", adapter)
 '''
     assert _send_evidence(src) == []
+
+
+def test_constructor_via_bare_import_is_not_send():
+    """Completes #34: `from httpx import AsyncClient; AsyncClient()` creates a client, sends nothing."""
+    src = '''
+from httpx import AsyncClient, Client
+from requests import Session
+
+a = AsyncClient(timeout=5)
+b = Client()
+c = Session()
+'''
+    assert _send_evidence(src) == []
+
+
+def test_in_process_transport_client_is_not_tracked():
+    """basic-memory shape: an httpx client over ASGITransport talks to an in-process app."""
+    src = '''
+import httpx
+from httpx import ASGITransport
+
+async def call(app):
+    async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/memory", json={})
+    local = httpx.Client(transport=httpx.MockTransport(handler))
+    local.get("/x")
+'''
+    assert _send_evidence(src) == []
+
+
+def test_network_transport_client_still_tracked():
+    src = '''
+import httpx
+
+client = httpx.Client(transport=httpx.HTTPTransport(retries=3))
+client.get(url)
+'''
+    assert _send_evidence(src) == ["httpx.Client.get"]
