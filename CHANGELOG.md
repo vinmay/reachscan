@@ -2,6 +2,12 @@
 
 All notable changes to reachscan are documented here. This project follows [Semantic Versioning](https://semver.org/). The JSON output schema has its own version (`schema_version`), documented in [`docs/schema_v1.md`](docs/schema_v1.md).
 
+## [Unreleased]
+
+### Fixed
+
+- **SEND precision:** creating or configuring an HTTP client is no longer reported as a network send. Client construction (`requests.Session()`, `httpx.Client()` / `AsyncClient()`, `aiohttp.ClientSession()`, `urllib3.PoolManager()`), `Session.mount(...)`, and adapters send nothing; requests made through those clients (`session.post(...)`, `client.get(...)`, `pool.request(...)`) are still detected. A URL literal also needs a host to count: a bare scheme prefix such as `"https://"` no longer turns a call into a send. On the phase-3 corpus this removes 43 findings in 5 repos, with no change to combined risks or exit codes. One side effect: sends made only through a client returned by a helper function are no longer visible, which is a known call-graph limitation.
+
 ## [0.3.0] - 2026-10-05
 
 ### Added

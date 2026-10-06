@@ -34,3 +34,88 @@ resp = requests.get("https://api.example.com/data")
     assert any(f.evidence == "requests.get" for f in findings)
     # The transport should NOT appear
     assert not any("StreamableHTTP" in f.evidence for f in findings)
+
+# ---------------------------------------------------------------------------
+# Non-sending calls: client construction, adapters, mount, session config
+# ---------------------------------------------------------------------------
+
+def _send_evidence(src):
+    return sorted(f.evidence for f in scan_file("demo.py", src) if f.capability == "SEND")
+
+
+def test_session_configuration_is_not_send():
+    """The awslabs shape: a helper that builds and configures a session sends nothing."""
+    src = '''
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+def get_requests_session():
+    retry_strategy = Retry(total=3, backoff_factor=1)
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    session.headers.update({"User-Agent": "x"})
+    return session
+'''
+    assert _send_evidence(src) == []
+
+
+def test_client_constructors_alone_are_not_send():
+    src = '''
+import httpx
+import aiohttp
+import urllib3
+
+a = httpx.Client(timeout=10)
+b = httpx.AsyncClient()
+c = aiohttp.ClientSession()
+d = urllib3.PoolManager()
+'''
+    assert _send_evidence(src) == []
+
+
+def test_verb_calls_through_clients_are_still_send():
+    src = '''
+import requests
+import httpx
+import urllib3
+
+session = requests.Session()
+session.post(url, json={})
+
+with httpx.Client() as client:
+    client.get(url)
+
+pool = urllib3.PoolManager()
+pool.request("GET", url)
+'''
+    assert _send_evidence(src) == [
+        "httpx.Client.get", "requests.Session.post", "urllib3.PoolManager.request",
+    ]
+
+
+def test_scheme_only_literal_is_not_a_request_url():
+    src = '''
+import requests
+registry.get("https://")
+registry.get("http://")
+'''
+    assert _send_evidence(src) == []
+
+
+def test_literal_url_with_host_still_flags_verb_calls():
+    src = '''
+client.get("https://api.example.com/v1/items")
+'''
+    assert _send_evidence(src) == ["client.get -> https://api.example.com/v1/items"]
+
+
+def test_mount_with_full_url_is_not_send():
+    src = '''
+import requests
+session = requests.Session()
+session.mount("https://internal.example.com/", adapter)
+'''
+    assert _send_evidence(src) == []

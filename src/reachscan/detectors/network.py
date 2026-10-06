@@ -21,20 +21,15 @@ NETWORK_CALL_ATTRS = {
     ("requests", "delete"): "requests.delete",
     ("requests", "patch"): "requests.patch",
     ("requests", "head"): "requests.head",
-    ("requests", "Session"): "requests.Session",
     ("httpx", "get"): "httpx.get",
     ("httpx", "post"): "httpx.post",
     ("httpx", "put"): "httpx.put",
     ("httpx", "delete"): "httpx.delete",
     ("httpx", "patch"): "httpx.patch",
     ("httpx", "head"): "httpx.head",
-    ("httpx", "Client"): "httpx.Client",
-    ("httpx", "AsyncClient"): "httpx.AsyncClient",
     ("urllib", "request"): "urllib.request",
     ("urllib.request", "urlopen"): "urllib.request.urlopen",
-    ("urllib3", "PoolManager"): "urllib3.PoolManager",
     ("socket", "socket"): "socket.socket",
-    ("aiohttp", "ClientSession"): "aiohttp.ClientSession",
     ("websockets", "connect"): "websockets.connect",
     ("websocket", "create_connection"): "websocket.create_connection",
 }
@@ -42,10 +37,14 @@ NETWORK_CALL_ATTRS = {
 # HTTP client constructors — when assigned to a variable, method calls on that
 # variable (.get(), .post(), etc.) are network calls even though the variable
 # name is arbitrary (e.g. client = httpx.Client(); client.get(...)).
+# Constructing a client, mounting adapters, and other session configuration
+# send nothing, so the constructors themselves are not SEND evidence; only the
+# verb calls made through the client are.
 HTTP_CLIENT_CONSTRUCTORS = {
     "requests.Session", "requests.session",
     "httpx.Client", "httpx.AsyncClient",
     "aiohttp.ClientSession",
+    "urllib3.PoolManager",
 }
 
 # HTTP verb methods that indicate a network call when invoked on a client instance.
@@ -71,10 +70,24 @@ _MCP_SERVER_MODULE_PREFIXES = frozenset({
 })
 
 # Function names that are plausibly an HTTP call when a URL literal is passed.
+# `mount` is deliberately absent: Session.mount("https://", adapter) registers
+# an adapter for a URL prefix and sends nothing.
 LITERAL_URL_CALL_NAMES = {
     "get", "post", "put", "delete", "patch", "head", "options",
-    "request", "urlopen", "open", "fetch", "send", "mount",
+    "request", "urlopen", "open", "fetch", "send",
 }
+
+
+def _is_request_url(value: str) -> bool:
+    """True for an http(s) URL with a host; a bare scheme prefix like "https://" isn't one."""
+    from urllib.parse import urlparse
+    v = value.strip()
+    if not (v.startswith("http://") or v.startswith("https://")):
+        return False
+    try:
+        return bool(urlparse(v).netloc)
+    except ValueError:
+        return False
 
 @register_detector("network")
 def scan_file(path: str, content: str) -> List[CapabilityFinding]:
@@ -243,7 +256,7 @@ def scan_file(path: str, content: str) -> List[CapabilityFinding]:
             for arg in node.args:
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     v = arg.value.strip()
-                    if v.startswith("http://") or v.startswith("https://"):
+                    if _is_request_url(v):
                         func = node.func
                         func_name = None
                         if isinstance(func, ast.Attribute):
