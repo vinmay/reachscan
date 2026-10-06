@@ -512,9 +512,9 @@ def test_is_destructive_write(evidence, expected):
 @pytest.mark.parametrize("evidence,expected", [
     ("requests.get", "HTTP"),
     ("requests.Session.post", "HTTP"),
-    ("httpx.AsyncClient", "HTTP"),
+    ("httpx.AsyncClient.get", "HTTP"),
     ("urllib.request.urlopen", "HTTP"),
-    ("session.mount -> https://", "HTTP"),       # client variable with an http(s) URL
+    ("client.post -> https://api.example.com", "HTTP"),  # client variable with an http(s) URL
     ("websocket.create_connection", "websocket"),
     ("client.send -> wss://feed.example.com", "websocket"),
     ("bridge_client.connect", None),              # project wrapper / unknown object
