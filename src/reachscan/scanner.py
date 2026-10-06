@@ -14,6 +14,7 @@ from reachscan.source_loader import ProgressCallback
 from reachscan.source_loader import resolve_target
 from reachscan.ts_entry_points import analyze_ts_file, iter_ts_files
 from reachscan.ts_capabilities import scan_ts_capabilities
+from reachscan.detectors.client_factories import scan_client_factory_sends
 from reachscan.py_entry_points import scan_py_files, EntryPoint as PyEntryPoint
 from reachscan.call_graph import build_call_graph
 from reachscan.reachability import analyze_reachability
@@ -297,6 +298,25 @@ def scan_path(
 
     if progress_callback and total_files == 0:
         progress_callback("analysis_scan", 100, "0/0 files")
+
+    # Project-level network pass: sends through HTTP clients returned by project
+    # helpers (needs cross-file context, so it runs after the per-file detectors).
+    existing_sends = {
+        (entry["finding"].get("file"), entry["finding"].get("lineno"))
+        for entry in findings
+        if entry["detector"] == "network" and entry["finding"].get("capability") == "SEND"
+    }
+    for f in scan_client_factory_sends(py_files, path):
+        if (f.file, f.lineno) in existing_sends:
+            continue  # the per-file detector already reported a send on this line
+        enriched = enrich_finding(_normalize_finding(f))
+        finding_id, finding_ref = make_finding_id(
+            "network", enriched.get("file", ""), enriched.get("lineno", 0), path,
+            enriched.get("evidence", ""),
+        )
+        enriched["finding_id"] = finding_id
+        enriched["finding_ref"] = finding_ref
+        findings.append({"detector": "network", "finding": enriched})
 
     py_findings = [entry["finding"] for entry in findings]
 
