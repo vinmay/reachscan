@@ -28,8 +28,9 @@ contradicting sink, and a contradiction without such a path is not reported
 FastMCP tools use their decorated function as the entry node. For lowlevel
 servers, a types.Tool declaration is linked to its branch in the call_tool
 handler when the handler dispatches on its tool-name parameter with if/elif
-`name == <literal | same-file constant | enum member>` or `match name:`
-cases on the same. The tool's path then starts in that branch, plus the
+`name == <literal | same-file constant | enum member>` (also inside an `and`
+conjunction, e.g. `if name == "x" and arguments:`) or `match name:` cases
+on the same. The tool's path then starts in that branch, plus the
 handler statements outside the dispatch (shared setup that runs for every
 tool). Tools that can't be linked this way get no per-tool path and so no
 mismatch finding.
@@ -278,6 +279,33 @@ def _compare_value(test: ast.expr, param: str, ctx: ModuleContext) -> Optional[s
     return None
 
 
+def _tool_name_test(test: ast.expr, param: str, ctx: ModuleContext) -> Optional[str]:
+    """Tool name selected by an if/elif test, or None.
+
+    Accepts the plain comparison `param == X` (see _compare_value) and `and`
+    conjunctions where operands include that comparison, e.g.
+    `if name == "x" and arguments:`. Nested `and`s are flattened. The test
+    must name exactly one tool; `or`, conflicting names, or no comparison at
+    all return None.
+    """
+    value = _compare_value(test, param, ctx)
+    if value is not None:
+        return value
+    if not (isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And)):
+        return None
+    names = set()
+    stack = list(test.values)
+    while stack:
+        operand = stack.pop()
+        if isinstance(operand, ast.BoolOp) and isinstance(operand.op, ast.And):
+            stack.extend(operand.values)
+            continue
+        name = _compare_value(operand, param, ctx)
+        if name is not None:
+            names.add(name)
+    return names.pop() if len(names) == 1 else None
+
+
 def _case_values(pattern: ast.pattern, ctx: ModuleContext) -> Optional[List[str]]:
     if isinstance(pattern, ast.MatchValue):
         value = _resolve_str(pattern.value, ctx)
@@ -322,11 +350,11 @@ def _dispatch_branches(func: ast.AST, param: str, ctx: ModuleContext):
             if matched:
                 dispatch_nodes.append(node)
                 inside_dispatch.update(id(n) for n in ast.walk(node))
-        elif isinstance(node, ast.If) and _compare_value(node.test, param, ctx) is not None:
+        elif isinstance(node, ast.If) and _tool_name_test(node.test, param, ctx) is not None:
             matched = False
             current: Optional[ast.If] = node
             while current is not None:
-                value = _compare_value(current.test, param, ctx)
+                value = _tool_name_test(current.test, param, ctx)
                 if value is None:
                     break
                 branches.setdefault(value, current.body)
