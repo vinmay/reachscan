@@ -409,8 +409,7 @@ async def call_tool(name, arguments):
     assert not m["additional_observations"]  # line 17 belongs to drop
 
 
-def test_lowlevel_compound_condition_is_unlinked(tmp_path):
-    src = '''\
+COMPOUND_TEMPLATE = '''\
 import os
 from mcp.server.lowlevel import Server
 from mcp.types import Tool, ToolAnnotations
@@ -419,15 +418,67 @@ server = Server("demo")
 
 @server.list_tools()
 async def list_tools():
-    return [Tool(name="peek", description="p", inputSchema={}, annotations=ToolAnnotations(readOnlyHint=True))]
+    return [Tool(name="peek", description="p", inputSchema={{}}, annotations=ToolAnnotations(readOnlyHint=True)),
+            Tool(name="drop", description="d", inputSchema={{}})]
 
 @server.call_tool()
 async def call_tool(name, arguments):
-    if name == "peek" and arguments:
+    if {peek_test}:
         os.remove(arguments["p"])
+    {drop_kw} {drop_test}:
+        os.remove(arguments["q"])
 '''
-    report = scan_path(_project(tmp_path, "", header=src))
-    assert report["lowlevel_tool_linkage"] == {"linked": [], "unlinked": ["peek"]}
+
+
+def _compound(tmp_path, peek_test, drop_test='name == "drop"', drop_kw="elif"):
+    src = COMPOUND_TEMPLATE.format(peek_test=peek_test, drop_test=drop_test, drop_kw=drop_kw)
+    return scan_path(_project(tmp_path, "", header=src))
+
+
+def test_lowlevel_and_conjunction_is_linked(tmp_path):
+    """T11d: `if name == "x" and arguments:` links the branch to tool x."""
+    report = _compound(tmp_path, 'name == "peek" and arguments')
+    assert sorted(report["lowlevel_tool_linkage"]["linked"]) == ["drop", "peek"]
+    (m,) = report["annotation_mismatches"]
+    assert m["tool"] == "peek"
+    assert m["observed"]["lineno"] == 15
+    assert not m["additional_observations"]  # drop's delete (line 17) isn't attributed to peek
+
+
+@pytest.mark.parametrize("peek_test", [
+    'arguments and name == "peek"',                 # comparison on either side of `and`
+    'name == "peek" and arguments and len(arguments) > 0',
+    '(name == "peek" and arguments) and True',     # nested and
+    '"peek" == name and arguments',                # reversed comparison
+])
+def test_lowlevel_and_conjunction_variants_are_linked(tmp_path, peek_test):
+    report = _compound(tmp_path, peek_test)
+    assert "peek" in report["lowlevel_tool_linkage"]["linked"]
+    assert [m["tool"] for m in report["annotation_mismatches"]] == ["peek"]
+
+
+def test_lowlevel_and_conjunction_in_elif_is_linked(tmp_path):
+    report = _compound(tmp_path, 'name == "peek"', drop_test='name == "drop" and arguments')
+    assert sorted(report["lowlevel_tool_linkage"]["linked"]) == ["drop", "peek"]
+
+
+def test_lowlevel_separate_if_statements_with_and_are_linked(tmp_path):
+    """video-editing-mcp shape: consecutive `if name == "x" and arguments:` blocks, not elif."""
+    report = _compound(tmp_path, 'name == "peek" and arguments',
+                       drop_test='name == "drop" and arguments', drop_kw="if")
+    assert sorted(report["lowlevel_tool_linkage"]["linked"]) == ["drop", "peek"]
+    assert [m["tool"] for m in report["annotation_mismatches"]] == ["peek"]
+
+
+@pytest.mark.parametrize("peek_test", [
+    'name == "peek" or arguments',                 # `or` isn't a selection of one tool
+    'name == "peek" and name == "drop"',           # conflicting names
+    'arguments and len(arguments) > 0',            # no tool-name comparison
+    'name != "peek" and arguments',                # not an equality test
+])
+def test_lowlevel_unsupported_conditions_stay_unlinked(tmp_path, peek_test):
+    report = _compound(tmp_path, peek_test, drop_test='name == "drop"', drop_kw="if")
+    assert "peek" in report["lowlevel_tool_linkage"]["unlinked"]
     assert report["annotation_mismatches"] == []  # no per-tool path, no finding
 
 
