@@ -94,7 +94,7 @@ Build this from `reachability_path` plus the finding's `evidence`, `file`, and `
 
 **Coverage gaps.** Say so explicitly when any of these apply:
 - `entry_points_detected` is 0: reachability was not evaluated, and findings show what the code *contains*, not what a tool can trigger.
-- `num_ts_files_scanned` > 0 or `ts_entry_points` is non-empty: TS/JS tool bodies weren't analyzed, so "nothing found" is not evidence of safety for those tools.
+- `unreachable` high findings in files that also register tools: the call graph doesn't follow dynamic dispatch or calls on class instances, so check whether a tool can reach them.
 - Many `unknown` findings.
 
 End with one line: "Static analysis of code patterns. It does not prove runtime behavior."
@@ -109,7 +109,7 @@ Use only the findings plus what the user told you the server is for:
   - A combined risk exists where every capability involved is `reachable`, and that doesn't match the stated purpose.
 - **Review first** when:
   - There are reachable high findings that plausibly match the purpose (a shell server reaching EXECUTE, a fetch server reaching SEND). Name them so the user knows what they're accepting.
-  - Or there are coverage gaps (no entry points, TS/JS tools, many unknowns), so the scan can't vouch for the server.
+  - Or there are coverage gaps (no entry points, unreachable high findings next to tool code, many unknowns), so the scan can't vouch for the server.
 - **Install** when there are no reachable high findings, no combined risks, no risky module-level findings, and no coverage gaps.
 
 If you don't know the server's purpose, say what the tools can reach and pick **Review first** instead of guessing.

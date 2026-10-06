@@ -64,7 +64,8 @@ def test_report_shows_ts_notice_when_only_ts_found():
     out = human_report(results)
     assert "TypeScript Entry Points" in out
     assert "read_file" in out
-    assert "TypeScript call paths are not traced yet" in out
+    assert "TypeScript call paths are not traced yet" not in out
+    assert "No Python or TypeScript files were found" not in out
 
 
 # ── Reachability tests ──────────────────────────────────────────────────────

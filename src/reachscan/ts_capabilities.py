@@ -118,6 +118,7 @@ class TSCapabilityFinding:
     detector: str
     finding: CapabilityFinding
     in_function: bool  # False: module-level code that runs on import
+    container: Optional[int] = None  # start_byte of the innermost enclosing function (internal)
 
 
 # ---------------------------------------------------------------------------
@@ -322,12 +323,16 @@ class _Resolver:
 # ---------------------------------------------------------------------------
 
 def _in_function(node) -> bool:
+    return _container(node) is not None
+
+
+def _container(node) -> Optional[int]:
     parent = node.parent
     while parent is not None:
         if parent.type in _FUNCTION_NODES:
-            return True
+            return parent.start_byte
         parent = parent.parent
-    return False
+    return None
 
 
 def _open_capability(call) -> Tuple[str, float]:
@@ -399,6 +404,7 @@ def scan_ts_capabilities(file_path: str, root) -> List[TSCapabilityFinding]:
                 confidence=confidence,
             ),
             in_function=_in_function(node),
+            container=_container(node),
         ))
 
     for module, node in resolver.side_effect_imports:

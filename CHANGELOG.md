@@ -4,6 +4,15 @@ All notable changes to reachscan are documented here. This project follows [Sema
 
 ## [Unreleased]
 
+### Added
+
+- **TypeScript/JavaScript reachability.** TS findings now get the same reachability states as Python: each tool handler is an entry node, and a call graph follows direct calls within a file, relative imports (ESM including `./x.js` → `x.ts`, CommonJS `require`, namespace imports), `this.method()`, object-literal methods, constructors, and callbacks defined inside a function, for up to 8 hops. Reachable TS findings carry `entry_point_name`, `reachability_path`, and SARIF code flows. Code that only an unresolved method call could reach (`tool.execute()` on an instance or a tool object from a list) is `unknown`. Anything else not on a path is `unreachable`.
+- **More TS tool registrations recognized:** `addTool(toolObject)` with a project tool object; tool-definition objects using `schema` / `parameters` / `args` and a `handler` / `execute` property or method (including `defineTool({...})`); objects passed to a project wrapper that calls `registerTool` / `tool` / `addTool`; xmcp file-based tools (projects depending on xmcp); handlers wrapped in a function call (`withTelemetry(async (req) => ...)`) or bound (`this.run.bind(this)`); and registrations with a computed name. These are reported with the name `unknown` unless the name is a same-file constant or has a `x || "literal"` fallback.
+
+### Changed
+
+- **Exit code:** reachable high-risk TS findings now produce exit code 1, as Python findings already did. TS-only projects that previously exited 0 may now fail CI. Combined risks for TS findings use reachable and module-level findings, not presence. On the phase-3 corpus: TS entry points go from 366 to 690. TS findings that were `unknown` or `no_entry_points` (1,252) are now 196 `reachable`, 900 `unreachable`, 152 `unknown`, and 4 `no_entry_points`. 16 repos move from exit 0 to 1, and 8 combined risks are added in 4 repos. Python results are unchanged.
+
 ### Fixed
 
 - **Sends through clients returned by project helpers are detected again.** A project function that returns an HTTP client on every path (`requests.Session()`, the `requests` module, `httpx.Client()` / `AsyncClient()`, `aiohttp.ClientSession()`, `urllib3.PoolManager()`, directly or through a local variable) is treated as a client factory. Send methods called on its result (`with get_session() as s: s.post(...)`, `client = await make_client(); await client.get(...)`, `make_client().get(...)`) are reported as SEND at the call site. Resolution is one hop, configuration calls such as `mount` stay non-evidence, and helpers returning other types or mixed types don't count. This restores sends hidden since 0.3.1 stopped counting client construction as a send. On the phase-3 corpus: 4 sends restored (all reachable), nothing else changes, and one `openWorldHint` annotation mismatch reappears with the actual `post` call as its sink.

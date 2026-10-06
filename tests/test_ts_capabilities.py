@@ -416,7 +416,8 @@ def test_scan_reports_ts_findings_with_states(ts_project):
     found = _ts_findings(report)
     execute = found[("EXECUTE", "child_process.execSync()")]
     secret = found[("SECRETS", "process.env.SERVICE_API_KEY")]
-    assert execute["reachability"] == "unknown"     # inside a tool handler; TS paths not traced yet
+    assert execute["reachability"] == "reachable"   # inside the run tool's handler
+    assert execute["entry_point_name"] == "run"
     assert secret["reachability"] == "module_level"  # top-level code runs on import
     assert execute["risk_level"] == "high"
     assert execute["explanation"] and execute["finding_id"]
@@ -448,7 +449,7 @@ def test_ts_findings_in_sarif(ts_project):
     full = build_sarif(results, include_unreachable=True)["runs"][0]["results"]
     rules = {r["ruleId"] for r in full}
     assert "reachscan/EXECUTE" in rules
-    assert {r["ruleId"] for r in default} == {"reachscan/SECRETS"}  # module_level only
+    assert {r["ruleId"] for r in default} == {"reachscan/SECRETS", "reachscan/EXECUTE"}
     uris = {r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] for r in full}
     assert uris == {"server.ts"}
 
@@ -456,14 +457,14 @@ def test_ts_findings_in_sarif(ts_project):
 def test_ts_findings_in_text_report(ts_project):
     out = human_report(scan_path(ts_project))
     assert "child_process.execSync()" in out
-    assert "UNKNOWN" in out
-    assert "TypeScript call paths" in out
+    assert "Reachable Findings" in out and "path: run" in out
+    assert "TypeScript call paths" not in out
 
 
-def test_ts_findings_do_not_change_exit_code_until_reachable(ts_project, capsys):
+def test_reachable_ts_findings_set_exit_code(ts_project, capsys):
     with pytest.raises(SystemExit) as exc:
         main([str(ts_project), "--json"])
-    assert exc.value.code == 0
+    assert exc.value.code == 1
 
 
 def test_mixed_project_keeps_python_reachability(tmp_path):
@@ -476,9 +477,9 @@ def test_mixed_project_keeps_python_reachability(tmp_path):
         for e in report["findings"]
     }
     assert states[("helper.py", "EXECUTE")] == "no_entry_points"
-    assert states[("server.ts", "EXECUTE")] == "unknown"
+    assert states[("server.ts", "EXECUTE")] == "reachable"
     out = human_report(report)
-    # Python no_entry_points findings stay visible next to TS unknown findings.
+    # Python no_entry_points findings stay visible next to TS reachable findings.
     assert "subprocess.run()" in out
     assert "NO_ENTRY_POINTS" in out
 
