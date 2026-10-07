@@ -232,7 +232,7 @@ def _contradictions(annotations: ToolAnnotationInfo, capability: str, evidence: 
         yield RULE_READ_ONLY, "readOnlyHint", True, "high"
     ow = annotations.open_world
     if ow.source == EXPLICIT and ow.value is False and capability == "SEND" and send_kind:
-        yield RULE_CLOSED_WORLD, "openWorldHint", False, "high"
+        yield RULE_CLOSED_WORLD, "openWorldHint", False, "medium"
     de = annotations.destructive
     if (
         de.source == EXPLICIT and de.value is False

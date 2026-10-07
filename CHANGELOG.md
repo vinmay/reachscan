@@ -2,6 +2,13 @@
 
 All notable changes to reachscan are documented here. This project follows [Semantic Versioning](https://semver.org/). The JSON output schema has its own version (`schema_version`), documented in [`docs/schema_v1.md`](docs/schema_v1.md).
 
+## [Unreleased]
+
+### Changed
+
+- **Annotation mismatches now count toward the exit code.** A mismatch at or above the `--severity` threshold exits 1, like a reachable finding: high mismatches fail the scan by default, medium ones under `--severity medium`, and `--severity none` still always exits 0. Every mismatch carries the call path from the tool to the contradicting sink, and one without a path never gates. **This can turn green CI runs red**, so it ships as a minor version.
+- **`openWorldHint: false` mismatches are now medium, not high.** `readOnlyHint: true` contradicted by reachable WRITE, EXECUTE, or DYNAMIC stays high; `destructiveHint: false` mismatches stay medium. In SARIF, closed-world mismatches move from `error` to `warning`.
+
 ## [0.3.2] - 2026-10-06
 
 ### Added

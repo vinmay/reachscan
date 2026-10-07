@@ -140,3 +140,27 @@ def test_main_json_output_uses_v1_schema(monkeypatch, capsys):
     assert "generated_at" in data
     assert "reachscan_version" in data
     assert "report" not in data
+
+
+# ---------------------------------------------------------------------------
+# Annotation mismatches use the same --severity threshold
+# ---------------------------------------------------------------------------
+
+def _mismatch(risk_level="high", path=("tool", "sink_fn")):
+    return {"rule_id": "mcp-risk-mismatch", "risk_level": risk_level, "reachability_path": list(path)}
+
+
+@pytest.mark.parametrize("risk,severity,expected", [
+    ("high", "high", 1),
+    ("medium", "high", 0),
+    ("medium", "medium", 1),
+    ("high", "none", 0),
+])
+def test_mismatch_gates_on_severity(risk, severity, expected):
+    results = {"findings": [], "annotation_mismatches": [_mismatch(risk)]}
+    assert _compute_exit_code(results, severity) == expected
+
+
+def test_mismatch_without_call_path_never_gates():
+    results = {"findings": [], "annotation_mismatches": [_mismatch("high", path=())]}
+    assert _compute_exit_code(results, "medium") == 0

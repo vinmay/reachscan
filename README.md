@@ -45,7 +45,7 @@ Seven capability classes, built from AST analysis of Python and TypeScript/JavaS
 | `DYNAMIC` | eval, exec, dynamic imports |
 | `AUTONOMY` | Background tasks, schedulers, self-directed execution |
 
-Cross-capability risks are also flagged when both capabilities are reachable: READ + SEND (secret leakage), SEND + WRITE (data exfiltration), EXECUTE + SEND (remote control), and EXECUTE + destructive WRITE (destructive agent).
+Cross-capability risks are also flagged when both capabilities are reachable (or run at module level, on import): READ + SEND (secret leakage), SEND + WRITE (data exfiltration), EXECUTE + SEND (remote control), and EXECUTE + destructive WRITE (destructive agent).
 
 ---
 
@@ -128,7 +128,7 @@ MCP tools can declare [`ToolAnnotations`](https://modelcontextprotocol.io/specif
 | Declared | Contradicted by a reachable... | Severity |
 |---|---|---|
 | `readOnlyHint: true` | WRITE, EXECUTE, or DYNAMIC | high |
-| `openWorldHint: false` | outbound HTTP, websocket, or raw socket connect (not to a literal loopback host such as `localhost` or `127.0.0.1`; calls into the project's own modules, database drivers, and other protocol clients don't count) | high |
+| `openWorldHint: false` | outbound HTTP, websocket, or raw socket connect (not to a literal loopback host such as `localhost` or `127.0.0.1`; calls into the project's own modules, database drivers, and other protocol clients don't count) | medium |
 | `destructiveHint: false` (with `readOnlyHint: false`) | delete, move/rename, or truncating write | medium |
 
 ```text
@@ -139,7 +139,7 @@ Annotation Mismatches  —  MCP tool annotations contradicted by reachable code
     path: get_report → _cleanup → os.remove()
 ```
 
-Every mismatch comes with the call path from that tool to the contradicting code. A contradiction without such a path isn't reported. Only explicitly declared hints are checked: absent hints fall back to the spec's conservative defaults, which claim nothing, and hints reachscan can't resolve statically (imported from outside the project, built by a helper function) are skipped and listed under `--explain`. FastMCP `@mcp.tool(annotations=...)` and lowlevel `types.Tool(...)` declarations are both supported. Lowlevel tools are linked to their branch in the `call_tool` handler when it dispatches with `if name == ...` or `match name:`. Mismatches appear in the text report, in JSON (`annotation_mismatches`, schema 1.1), and in SARIF as rule `mcp-risk-mismatch`. TypeScript support is planned.
+Every mismatch comes with the call path from that tool to the contradicting code. A contradiction without such a path isn't reported. Only explicitly declared hints are checked: absent hints fall back to the spec's conservative defaults, which claim nothing, and hints reachscan can't resolve statically (imported from outside the project, built by a helper function) are skipped and listed under `--explain`. FastMCP `@mcp.tool(annotations=...)` and lowlevel `types.Tool(...)` declarations are both supported. Lowlevel tools are linked to their branch in the `call_tool` handler when it dispatches with `if name == ...` or `match name:`. Mismatches appear in the text report, in JSON (`annotation_mismatches`, schema 1.1), and in SARIF as rule `mcp-risk-mismatch`. They count toward the [exit code](#exit-codes) through the same `--severity` threshold as findings: a high mismatch fails the scan by default, and medium mismatches do under `--severity medium`. TypeScript support is planned.
 
 ---
 
@@ -199,7 +199,7 @@ You get file paths and line numbers. Not just "this repo uses subprocess" — yo
 
 **Anyone integrating third-party tools** — tools, plugins, and MCP servers come with capabilities attached. Scan them *before* wiring them into your agent. `reachscan https://github.com/some-org/some-tool` takes seconds and requires nothing installed on that repo, or ask your coding agent to do it with the [Claude Code / Codex plugin](#use-it-from-claude-code-or-codex).
 
-**MCP server authors** — show your users exactly what your server can and cannot do. A clean scan result is a trust signal, and the [GitHub Action](#ci-integration) keeps it clean as the server changes.
+**MCP server authors** — show your users exactly what your server can reach, with call paths, and check that your tool annotations match. The [GitHub Action](#ci-integration) flags new reachable capabilities and contradicted annotations as the server changes.
 
 ---
 
@@ -320,7 +320,7 @@ Then open the Plugins Directory, choose the **reachscan** marketplace, and insta
 ## Usage
 
 ```
-reachscan [target] [--json | --sarif] [--severity {high,medium,none}] [--explain]
+reachscan [target] [--json | --sarif] [--sarif-include-unreachable] [--severity {high,medium,none}] [--explain]
 ```
 
 `target` accepts:
@@ -342,7 +342,7 @@ The GitHub URL path does a shallow clone — you don't need the repo checked out
 | Code | Meaning |
 |------|---------|
 | `0` | Scan complete, threshold not exceeded |
-| `1` | Scan complete, ≥1 reachable finding exceeds severity threshold |
+| `1` | Scan complete, ≥1 reachable finding or annotation mismatch meets the severity threshold |
 | `2` | Scan failed (bad target, network error, unhandled exception) |
 
 ### `--severity` flag
@@ -351,8 +351,8 @@ Controls when the CLI exits 1:
 
 | Value | Exit 1 when... |
 |-------|----------------|
-| `high` *(default)* | reachable finding with `risk_level == "high"` |
-| `medium` | reachable finding with `risk_level in ("high", "medium")` |
+| `high` *(default)* | reachable finding or annotation mismatch with `risk_level == "high"` |
+| `medium` | reachable finding or annotation mismatch with `risk_level in ("high", "medium")` |
 | `none` | never — always exits 0 |
 
 ### `--explain` flag
