@@ -313,6 +313,13 @@ def _risk_result(
             "allCapabilitiesReachable": all_reachable,
         },
     }
+    if risk.get("includes_suppressed_findings"):
+        result["message"]["text"] += " Includes suppressed findings."
+        result["properties"]["includesSuppressedFindings"] = True
+        result["properties"]["allFindingsSuppressed"] = bool(risk.get("all_findings_suppressed"))
+        result["properties"]["suppressedFindings"] = [
+            f.get("finding_id") for f in risk.get("suppressed_findings", [])
+        ]
     if rule_id in rule_index:
         result["ruleIndex"] = rule_index[rule_id]
     if related:

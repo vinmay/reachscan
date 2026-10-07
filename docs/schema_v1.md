@@ -158,9 +158,16 @@ Each element of `risks`:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | `string` | Risk identifier (e.g. `"secret_leak"`, `"destructive_agent"`) |
-| `description` | `string` | Human-readable description of the combined-capability risk |
-| `capabilities` | `array<string>` | Capability keys that triggered this risk |
+| `id` | `string` | Risk identifier: `"data_exfiltration"`, `"remote_control"`, `"secret_leak"`, or `"destructive_agent"` |
+| `title` | `string` | Human-readable title (e.g. `"Remote Control Risk"`) |
+| `severity` | `string` | `"high"` |
+| `why` | `string` | Why the combination is risky |
+| `capabilities_triggered` | `array<string>` | Capability keys that triggered this risk |
+| `includes_suppressed_findings` | `boolean` | (1.2, optional) Present and `true` when some of the risk's contributing findings are suppressed inline. Suppressed findings still count toward combined risks |
+| `all_findings_suppressed` | `boolean` | (1.2, optional) With `includes_suppressed_findings`: `true` if every contributing finding is suppressed |
+| `suppressed_findings` | `array` | (1.2, optional) The suppressed contributing findings: `{finding_id, capability, evidence, file, lineno, reason}` |
+
+Combined risks don't affect the exit code.
 
 ---
 

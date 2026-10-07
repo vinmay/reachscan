@@ -194,6 +194,12 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
                     lines.append(f"      - {fpath}")
                 if len(module_files) > _MAX_LISTED_FILES:
                     lines.append(f"      … and {len(module_files) - _MAX_LISTED_FILES} more files")
+            if risk.get("includes_suppressed_findings"):
+                label = "all findings suppressed" if risk.get("all_findings_suppressed") else "includes suppressed findings"
+                lines.append(f"    {label}:")
+                for sf in risk.get("suppressed_findings", []):
+                    lines.append(f"      - {sf['capability']} via {sf['evidence']} "
+                                 f"({_location(sf['file'], sf['lineno'])}): {sf['reason']}")
     else:
         lines.append("  None inferred from combined-capability rules.")
     lines.append("")
