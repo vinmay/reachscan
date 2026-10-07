@@ -7,6 +7,7 @@ All notable changes to reachscan are documented here. This project follows [Sema
 ### Changed
 
 - **Annotation mismatches now count toward the exit code.** A mismatch at or above the `--severity` threshold exits 1, like a reachable finding: high mismatches fail the scan by default, medium ones under `--severity medium`, and `--severity none` still always exits 0. Every mismatch carries the call path from the tool to the contradicting sink, and one without a path never gates. **This can turn green CI runs red**, so it ships as a minor version.
+- **Python: code that only an unresolved method call could reach is `unknown`, not `unreachable`.** When reachable code calls `x.m()`, `self.attr.m()`, `super().m()`, or an inherited `self.m()` that the call graph can't resolve, and the project defines a method named `m`, findings in that method and in what it calls are `unknown`. This matches the TypeScript behavior. Calls rooted at a non-project import (`os.path.join()`, `requests.get()`) don't count. `unknown` doesn't gate and isn't in default SARIF. On the phase-3 corpus: 110 of 1,257 unreachable Python findings become unknown (7 repos); exit codes, combined risks, and annotation mismatches are unchanged.
 - **`openWorldHint: false` mismatches are now medium, not high.** `readOnlyHint: true` contradicted by reachable WRITE, EXECUTE, or DYNAMIC stays high; `destructiveHint: false` mismatches stay medium. In SARIF, closed-world mismatches move from `error` to `warning`.
 
 ## [0.3.2] - 2026-10-06
