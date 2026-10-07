@@ -39,6 +39,11 @@ def _compute_exit_code(results: dict, severity: str) -> int:
         f = item.get("finding", {})
         if f.get("reachability") == "reachable" and f.get("risk_level") in trigger_levels:
             return 1
+    # Annotation mismatches are reachable by construction (each carries the call
+    # path from the tool to the sink); one without a path never gates.
+    for m in results.get("annotation_mismatches", []):
+        if m.get("reachability_path") and m.get("risk_level") in trigger_levels:
+            return 1
     return 0
 
 

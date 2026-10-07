@@ -123,7 +123,7 @@ Each element of `annotation_mismatches` describes one false claim: an explicitly
 |-------|------|-------------|
 | `rule_id` | `string` | Always `"mcp-risk-mismatch"` (also the SARIF rule id) |
 | `rule` | `string` | `read_only_contradicted` (readOnlyHint true + reachable WRITE/EXECUTE/DYNAMIC), `closed_world_contradicted` (openWorldHint false + a reachable outbound HTTP, websocket, or raw socket connect not to a literal loopback host; project-module calls, database drivers, and other protocol clients don't count), or `non_destructive_contradicted` (destructiveHint false, with readOnlyHint false, + reachable delete, move/rename, or truncating write) |
-| `risk_level` | `string` | `"high"` for read_only / closed_world, `"medium"` for non_destructive |
+| `risk_level` | `string` | `"high"` for read_only, `"medium"` for closed_world and non_destructive (closed_world was `"high"` before 0.4.0) |
 | `tool` | `string` | MCP tool name |
 | `entry_point` | `object` | `{name, file, lineno, dispatch}`. `dispatch` is `"decorator"` (FastMCP) or `"lowlevel"` (a `types.Tool` linked to its branch in the `call_tool` handler) |
 | `declared` | `object` | `{hint, value}`, e.g. `{"hint": "readOnlyHint", "value": true}` |
@@ -224,7 +224,7 @@ When using `--json` (or without it), the CLI exits with:
 | Code | Meaning |
 |------|---------|
 | `0` | Scan complete, severity threshold not exceeded |
-| `1` | Scan complete, ≥1 reachable finding exceeds `--severity` threshold |
+| `1` | Scan complete, ≥1 reachable finding or annotation mismatch meets the `--severity` threshold |
 | `2` | Scan failed (bad target, network error, unhandled exception) |
 
 Use `--severity none` to always get exit code 0 (report-only mode).

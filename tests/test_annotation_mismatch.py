@@ -112,14 +112,14 @@ def test_unresolvable_annotation_reference_produces_no_mismatch(tmp_path):
     assert "Not checked" in human_report(report, explain=True)
 
 
-def test_closed_world_tool_reaching_http_is_high(tmp_path):
+def test_closed_world_tool_reaching_http_is_medium(tmp_path):
     report = scan_path(_project(tmp_path, '''
         @mcp.tool(annotations=ToolAnnotations(openWorldHint=False))
         def lookup(q: str):
             return requests.get("https://api.example.com/search", params={"q": q})
     '''))
     mm = report["annotation_mismatches"]
-    assert _summary(mm) == [("lookup", "closed_world_contradicted", "high")]
+    assert _summary(mm) == [("lookup", "closed_world_contradicted", "medium")]
     assert mm[0]["observed"]["send_kind"] == "HTTP"
     assert mm[0]["message"] == (
         "Tool 'lookup' declares openWorldHint: false; reaches outbound HTTP call: "
@@ -531,18 +531,14 @@ def test_sarif_mismatch_result(tmp_path):
     assert rule_ids[r["ruleIndex"]] == "mcp-risk-mismatch"
 
 
-def test_exit_code_unchanged_by_mismatches(tmp_path, capsys):
-    """The contradicting sink is already a reachable finding; mismatches don't change exit codes."""
-    (tmp_path / "a").mkdir()
-    (tmp_path / "b").mkdir()
-    annotated = _project(tmp_path / "a", BODY)
-    plain = _project(tmp_path / "b", BODY.replace("annotations=ToolAnnotations(readOnlyHint=True)", ""))
-    codes = []
-    for project in (annotated, plain):
-        with pytest.raises(SystemExit) as exc:
-            main([str(project), "--json", "--severity", "high"])
-        codes.append(exc.value.code)
-    assert codes[0] == codes[1]
+def test_high_mismatch_exits_1(tmp_path, capsys):
+    project = _project(tmp_path, BODY)
+    with pytest.raises(SystemExit) as exc:
+        main([str(project), "--json", "--severity", "high"])
+    assert exc.value.code == 1
+    with pytest.raises(SystemExit) as exc:
+        main([str(project), "--json", "--severity", "none"])
+    assert exc.value.code == 0
 
 
 # ---------------------------------------------------------------------------
