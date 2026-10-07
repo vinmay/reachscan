@@ -2,7 +2,9 @@
 
 All notable changes to reachscan are documented here. This project follows [Semantic Versioning](https://semver.org/). The JSON output schema has its own version (`schema_version`), documented in [`docs/schema_v1.md`](docs/schema_v1.md).
 
-## [Unreleased]
+## [0.4.0] - 2026-10-07
+
+**Upgrading:** this release can turn green CI runs red. Annotation mismatches now count toward the exit code through `--severity` (see Changed). Accept intended capabilities or mismatches with inline `reachscan:allow-*` comments (see Added), or use `--severity none` for report-only runs.
 
 ### Added
 
@@ -103,6 +105,7 @@ JSON output is unchanged. It is still schema v1.
 
 - First release.
 
+[0.4.0]: https://github.com/vinmay/reachscan/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/vinmay/reachscan/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/vinmay/reachscan/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/vinmay/reachscan/compare/v0.2.0...v0.3.0
