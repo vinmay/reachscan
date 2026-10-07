@@ -44,15 +44,16 @@ def _reachable_capability_set(findings: Iterable[Dict[str, Any]]) -> Set[str]:
     return {f["capability"] for f in risk_counted_findings(findings) if f.get("capability")}
 
 
+_DESTRUCTIVE_TOKENS = ("remove", "unlink", "rename", "replace", "delete")
+
+
+def _is_destructive_write(finding: Dict[str, Any]) -> bool:
+    evidence = str(finding.get("evidence", "")).lower()
+    return finding.get("capability") == "WRITE" and any(t in evidence for t in _DESTRUCTIVE_TOKENS)
+
+
 def _has_destructive_write(findings: Iterable[Dict[str, Any]]) -> bool:
-    destructive_tokens = ("remove", "unlink", "rename", "replace", "delete")
-    for finding in findings:
-        if finding.get("capability") != "WRITE":
-            continue
-        evidence = str(finding.get("evidence", "")).lower()
-        if any(token in evidence for token in destructive_tokens):
-            return True
-    return False
+    return any(_is_destructive_write(f) for f in findings)
 
 
 def analyze_combined_capabilities(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -115,4 +116,37 @@ def analyze_combined_capabilities(findings: List[Dict[str, Any]]) -> List[Dict[s
             {"EXECUTE", "WRITE"},
         )
 
+    _mark_suppressed_contributors(risks, findings)
     return risks
+
+
+def _mark_suppressed_contributors(risks: List[Dict[str, Any]], findings: List[Dict[str, Any]]) -> None:
+    """Label risks whose contributing findings include inline-suppressed ones.
+
+    Suppressed findings still count toward combined risks (the capability is
+    still there); the risk says which of its findings were suppressed.
+    """
+    counted = risk_counted_findings(findings)
+    for risk in risks:
+        caps = set(risk["capabilities_triggered"])
+        contributors = [
+            f for f in counted
+            if f.get("capability") in caps
+            and (risk["id"] != "destructive_agent" or f.get("capability") != "WRITE" or _is_destructive_write(f))
+        ]
+        suppressed = [f for f in contributors if f.get("suppression")]
+        if not suppressed:
+            continue
+        risk["includes_suppressed_findings"] = True
+        risk["all_findings_suppressed"] = len(suppressed) == len(contributors)
+        risk["suppressed_findings"] = [
+            {
+                "finding_id": f.get("finding_id"),
+                "capability": f.get("capability"),
+                "evidence": f.get("evidence"),
+                "file": f.get("file"),
+                "lineno": f.get("lineno"),
+                "reason": f["suppression"]["reason"],
+            }
+            for f in suppressed
+        ]

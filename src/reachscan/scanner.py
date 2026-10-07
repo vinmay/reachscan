@@ -15,6 +15,7 @@ from reachscan.source_loader import resolve_target
 from reachscan.ts_entry_points import TSEntryPoint, analyze_ts_file, iter_ts_files
 from reachscan.ts_callgraph import build_ts_graph, display_name, ts_reachability
 from reachscan.ts_capabilities import scan_ts_capabilities
+from reachscan.suppressions import apply_suppressions
 from reachscan.detectors.client_factories import scan_client_factory_sends
 from reachscan.py_entry_points import scan_py_files, EntryPoint as PyEntryPoint
 from reachscan.call_graph import build_call_graph
@@ -419,6 +420,9 @@ def scan_path(
         py_findings, py_entry_points, reach_index, graph, lineno_idx, project_root=path
     )
 
+    # Inline reachscan:allow-* comments: marked in output, excluded from the exit code
+    suppression_warnings = apply_suppressions(findings, annotation_mismatches, py_files, ts_trees)
+
     # Combined risks must run after reachability so they only fire on capabilities
     # an LLM entry point can actually reach.
     risks = analyze_combined_capabilities([entry["finding"] for entry in findings])
@@ -437,6 +441,7 @@ def scan_path(
         "ts_entry_points": [ep.as_dict() for ep in ts_entry_points],
         "py_entry_points": [ep.as_dict() for ep in py_entry_points],
         "annotation_mismatches": annotation_mismatches,
+        "suppression_warnings": suppression_warnings,
         # Internal (not in JSON): --explain notes and lowlevel linkage counts
         "annotation_notes": unresolvable_annotations(py_entry_points),
         "lowlevel_tool_linkage": {"linked": linkage.linked, "unlinked": linkage.unlinked},

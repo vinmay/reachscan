@@ -16,7 +16,7 @@ Consumers that ignore unknown fields can read 1.1 reports unchanged.
 
 | Field | Type | Always present | Description |
 |-------|------|----------------|-------------|
-| `schema_version` | `string` | Yes | `"1.1"` (was `"1"` before reachscan 0.3.0). Additive versions keep the major number |
+| `schema_version` | `string` | Yes | `"1.2"` since reachscan 0.4.0 (`"1.1"` in 0.3.x, `"1"` before 0.3.0). Additive versions keep the major number |
 | `generated_at` | `string` | Yes | UTC ISO-8601 timestamp (`YYYY-MM-DDTHH:MM:SSZ`) |
 | `reachscan_version` | `string` | Yes | Version of the reachscan package; `"unknown"` if not installed |
 | `target` | `string` | Yes | The scan target as provided (path, URL, or `pypi:name==version`) |
@@ -31,6 +31,7 @@ Consumers that ignore unknown fields can read 1.1 reports unchanged.
 | `risks` | `array` | Yes | Cross-capability risk inferences (see [Risk object](#risk-object)) |
 | `findings` | `array` | Yes | All findings from all detectors (see [Finding wrapper](#finding-wrapper)) |
 | `annotation_mismatches` | `array` | Yes (1.1) | MCP tool annotations contradicted by capabilities reachable from that tool (see [Annotation mismatch object](#annotation-mismatch-object)). Empty when there are none |
+| `suppression_warnings` | `array` | Yes (1.2) | `reachscan:allow-*` comments that were ignored: `{file, lineno, message}` (no reason given, unknown capability, or no code after the comment). Empty when there are none |
 | `other_languages` | `array` | Yes | Non-Python/TS languages detected when no Python files found (see [Language object](#language-object)) |
 | `static_analysis_note` | `string` | Yes | Disclaimer: `"This report reflects code patterns. It does not prove runtime behavior or exploitability."` |
 
@@ -72,6 +73,7 @@ Each element of `findings` is:
 | `reachability_path_truncated` | `boolean` | No | `true` if the call path was cut off at the traversal depth limit |
 | `finding_id` | `string` | Yes | 12-character SHA-1 hex digest; stable for the same `(detector, file, lineno, evidence)` tuple |
 | `finding_ref` | `string` | Yes | Human-readable `"detector:file:lineno:evidence"` string |
+| `suppression` | `object` | No (1.2) | Present when an inline `reachscan:allow-<capability> <reason>` comment covers this finding: `{reason, line}` (`line` is the comment's line). Suppressed findings don't affect the exit code |
 
 ---
 
@@ -132,6 +134,7 @@ Each element of `annotation_mismatches` describes one false claim: an explicitly
 | `additional_observations` | `array` | Other contradicting sinks for the same tool and rule: `{capability, evidence, file, lineno, finding_id, reachability_path}` |
 | `message` | `string` | Human-readable summary |
 | `mismatch_id` | `string` | 12-character stable id for (tool, entry point file, rule) |
+| `suppression` | `object` | (1.2, optional) Present when a `reachscan:allow-mismatch <reason>` comment on the tool's declaration covers this mismatch: `{reason, line}`. A capability suppression on the sink doesn't suppress the mismatch. Suppressed mismatches don't affect the exit code |
 
 ---
 
@@ -155,9 +158,16 @@ Each element of `risks`:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | `string` | Risk identifier (e.g. `"secret_leak"`, `"destructive_agent"`) |
-| `description` | `string` | Human-readable description of the combined-capability risk |
-| `capabilities` | `array<string>` | Capability keys that triggered this risk |
+| `id` | `string` | Risk identifier: `"data_exfiltration"`, `"remote_control"`, `"secret_leak"`, or `"destructive_agent"` |
+| `title` | `string` | Human-readable title (e.g. `"Remote Control Risk"`) |
+| `severity` | `string` | `"high"` |
+| `why` | `string` | Why the combination is risky |
+| `capabilities_triggered` | `array<string>` | Capability keys that triggered this risk |
+| `includes_suppressed_findings` | `boolean` | (1.2, optional) Present and `true` when some of the risk's contributing findings are suppressed inline. Suppressed findings still count toward combined risks |
+| `all_findings_suppressed` | `boolean` | (1.2, optional) With `includes_suppressed_findings`: `true` if every contributing finding is suppressed |
+| `suppressed_findings` | `array` | (1.2, optional) The suppressed contributing findings: `{finding_id, capability, evidence, file, lineno, reason}` |
+
+Combined risks don't affect the exit code.
 
 ---
 
@@ -224,7 +234,7 @@ When using `--json` (or without it), the CLI exits with:
 | Code | Meaning |
 |------|---------|
 | `0` | Scan complete, severity threshold not exceeded |
-| `1` | Scan complete, ≥1 reachable finding or annotation mismatch meets the `--severity` threshold |
+| `1` | Scan complete, ≥1 reachable finding or annotation mismatch meets the `--severity` threshold (suppressed ones excluded) |
 | `2` | Scan failed (bad target, network error, unhandled exception) |
 
 Use `--severity none` to always get exit code 0 (report-only mode).

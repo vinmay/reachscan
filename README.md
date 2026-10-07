@@ -342,8 +342,33 @@ The GitHub URL path does a shallow clone — you don't need the repo checked out
 | Code | Meaning |
 |------|---------|
 | `0` | Scan complete, threshold not exceeded |
-| `1` | Scan complete, ≥1 reachable finding or annotation mismatch meets the severity threshold |
+| `1` | Scan complete, ≥1 reachable finding or annotation mismatch meets the severity threshold (findings and mismatches [suppressed in source](#suppressing-findings) don't count) |
 | `2` | Scan failed (bad target, network error, unhandled exception) |
+
+### Suppressing findings
+
+When a capability is intended, say so next to the code, with a reason:
+
+```python
+subprocess.run(cmd, shell=True)  # reachscan:allow-execute this tool runs operator-provided commands
+```
+
+```ts
+// reachscan:allow-send posts to our own API
+await fetch(API_URL, { method: "POST", body });
+```
+
+The tag names one capability (`allow-execute`, `allow-read`, `allow-write`, `allow-send`, `allow-secrets`, `allow-dynamic`, `allow-autonomy`). It applies to its own line when it follows code, or to the next line of code when the comment stands alone (stacked comment lines are fine; a blank line ends it). A reason is required: a tag without one is ignored and reported under "Suppression Warnings".
+
+Suppressed findings stay in every output, marked with the reason: `SUPPRESSED` in the text report, `suppression` in JSON, and an in-source suppression in SARIF, which GitHub code scanning shows as suppressed rather than open. They don't affect the exit code. They still count toward combined risks, since the capability is still there; a risk that includes suppressed findings says so and lists them.
+
+An annotation mismatch is a different claim, that a tool's declared hint is false, so suppressing the sink doesn't suppress it. To accept a mismatch, put `reachscan:allow-mismatch <reason>` on the tool's decorator or `types.Tool(...)` line, or on a comment line directly above it:
+
+```python
+# reachscan:allow-mismatch writes only to its own cache; no user data is modified
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def get_report(...): ...
+```
 
 ### `--severity` flag
 

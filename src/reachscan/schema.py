@@ -14,7 +14,7 @@ def _get_tool_version() -> str:
         return "unknown"
 
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 
 _VALID_RISK_LEVELS = {"high", "medium", "low", "info"}
 
@@ -95,6 +95,7 @@ def build_v1_report(results: Dict[str, Any]) -> Dict[str, Any]:
             {k: v for k, v in m.items() if k != "reachability_path_locations"}
             for m in results.get("annotation_mismatches", [])
         ],
+        "suppression_warnings": results.get("suppression_warnings", []),
         "other_languages": results.get("other_languages", []),
         "static_analysis_note": _STATIC_ANALYSIS_NOTE,
     }

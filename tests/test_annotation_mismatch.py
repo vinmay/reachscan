@@ -499,7 +499,7 @@ BODY = '''
 
 def test_json_output_schema_1_1(tmp_path):
     report = json.loads(json_report(scan_path(_project(tmp_path, BODY))))
-    assert report["schema_version"] == "1.1"
+    assert report["schema_version"] == "1.2"
     (m,) = report["annotation_mismatches"]
     assert "reachability_path_locations" not in m
     assert m["observed"]["finding_id"] in {f["finding"]["finding_id"] for f in report["findings"]}

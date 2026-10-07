@@ -136,7 +136,7 @@ def test_main_json_output_uses_v1_schema(monkeypatch, capsys):
         main([".", "--json"])
     out = capsys.readouterr().out
     data = json.loads(out)
-    assert data["schema_version"] == "1.1"
+    assert data["schema_version"] == "1.2"
     assert "generated_at" in data
     assert "reachscan_version" in data
     assert "report" not in data
