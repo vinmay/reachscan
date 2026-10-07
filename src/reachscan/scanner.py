@@ -404,12 +404,14 @@ def scan_path(
     py_entry_points = scan_py_files(path)
 
     # Reachability analysis (Python findings only): build call graph and tag each finding
-    graph, lineno_idx, _ = build_call_graph(py_files, path)
+    unresolved_calls: Dict[Any, set] = {}
+    graph, lineno_idx, _ = build_call_graph(py_files, path, unresolved_calls)
     reach_index = analyze_reachability(
         findings=py_findings,
         py_entry_points=py_entry_points,
         graph=graph,
         lineno_index=lineno_idx,
+        unresolved_calls=unresolved_calls,
     )
 
     # MCP annotation claims contradicted by capabilities reachable from that tool

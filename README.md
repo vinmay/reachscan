@@ -60,7 +60,7 @@ Knowing a capability exists in a codebase is useful. Knowing whether the LLM can
 | `reachable` | Confirmed on a call path from an LLM entry point |
 | `unreachable` | Exists in the codebase, not on any LLM call path |
 | `module_level` | Runs on import — executes when the module loads, not via a function call |
-| `unknown` | Inside code that can't be statically resolved (dynamic dispatch, parse failure) |
+| `unknown` | Might be on a call path the analysis can't resolve (method calls on instances, dynamic dispatch, parse failure) |
 | `no_entry_points` | No entry points detected — full reachability analysis not possible |
 
 The call graph follows up to 8 hops from each entry point. Call paths are shown in the report so you can see exactly how the LLM reaches a capability.
@@ -70,7 +70,7 @@ The call graph follows up to 8 hops from each entry point. Call paths are shown 
 - `self.method()` calls to methods defined in the same class and file;
 - `module.function()` calls.
 
-It doesn't yet resolve method calls on object instances (`client.fetch()`, `self.db.query()`), chained attribute calls (`a.b.c()`), `super().method()`, or inherited methods. A capability reached only through such a call shows as unreachable or unknown, and can't produce an annotation mismatch.
+It doesn't yet resolve method calls on object instances (`client.fetch()`, `self.db.query()`), chained attribute calls (`a.b.c()`), `super().method()`, or inherited methods. When reachable code makes such a call and the project defines a method with that name, findings in that method (and in what it calls) are reported as `unknown` rather than `unreachable`. They can't produce an annotation mismatch and don't affect the exit code.
 
 ### Entry point detection — Python
 

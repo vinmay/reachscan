@@ -40,7 +40,7 @@ import warnings
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from reachscan.call_graph import CallGraph, FunctionNode, LinenoIndex, MODULE_LEVEL
 from reachscan.py_entry_points import PATTERN_CLASS_ATTRIBUTE
@@ -288,6 +288,7 @@ def analyze_reachability(
     py_entry_points: list,
     graph: CallGraph,
     lineno_index: LinenoIndex,
+    unresolved_calls: Optional[Dict[FunctionNode, Set[str]]] = None,
 ) -> ReachabilityIndex:
     """Tag each finding dict with its reachability state. Mutates findings in place.
 
@@ -299,6 +300,11 @@ def analyze_reachability(
         py_entry_points:  List of EntryPoint objects (from py_entry_points.py).
         graph:            CallGraph from build_call_graph().
         lineno_index:     LinenoIndex from build_call_graph().
+        unresolved_calls: Optional {caller → method names} from build_call_graph().
+                          A function not reached through resolved calls, but
+                          possibly reached through an unresolved `x.m()` call
+                          from a reached function to a project method named m
+                          (directly or onward), is tagged UNKNOWN, not UNREACHABLE.
     """
     for f in findings:
         assert "reachability" in f, f"Finding missing reachability field: {f}"
@@ -348,6 +354,8 @@ def analyze_reachability(
             "consider raising TRAVERSAL_DEPTH"
         )
 
+    maybe_reached = _maybe_reached(reachable_from, graph, unresolved_calls or {})
+
     # Tag each finding
     for finding in findings:
         file = finding["file"]
@@ -380,7 +388,45 @@ def analyze_reachability(
             # Containing function is not in the call graph (e.g. nested function
             # not resolvable as a project function) — reachability is undecidable.
             finding.update(ReachabilityResult(state=UNKNOWN).as_finding_fields())
+        elif containing in maybe_reached:
+            finding.update(ReachabilityResult(state=UNKNOWN).as_finding_fields())
         else:
             finding.update(ReachabilityResult(state=UNREACHABLE).as_finding_fields())
 
     return index
+
+
+def _maybe_reached(
+    reachable_from: Dict[FunctionNode, tuple],
+    graph: CallGraph,
+    unresolved_calls: Dict[FunctionNode, Set[str]],
+) -> Set[FunctionNode]:
+    """Nodes not reached, that an unresolved method call from reached code might reach.
+
+    Every project method ("Class.m") named like an unresolved call is a possible
+    target; from there, resolved and unresolved calls are followed onward, within
+    TRAVERSAL_DEPTH hops of the entry point.
+    """
+    if not unresolved_calls:
+        return set()
+    methods: Dict[str, Set[FunctionNode]] = {}
+    for node in graph:
+        if "." in node[1]:
+            methods.setdefault(node[1].rsplit(".", 1)[1], set()).add(node)
+    maybe: Set[FunctionNode] = set()
+    depth_of = {n: len(entry[2]) - 1 for n, entry in reachable_from.items()}
+    frontier = list(depth_of.items())
+    while frontier:
+        node, d = frontier.pop()
+        if d >= TRAVERSAL_DEPTH:
+            continue
+        nexts = set(graph.get(node, ()))
+        for name in unresolved_calls.get(node, ()):
+            nexts |= methods.get(name, set())
+        for nxt in nexts:
+            if nxt in reachable_from or depth_of.get(nxt, TRAVERSAL_DEPTH + 1) <= d + 1:
+                continue
+            depth_of[nxt] = d + 1
+            maybe.add(nxt)
+            frontier.append((nxt, d + 1))
+    return maybe

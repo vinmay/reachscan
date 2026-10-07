@@ -101,6 +101,7 @@ MODULE_LEVEL = "<module>"   # sentinel: code that lives outside any function
 def build_call_graph(
     py_files: List[Path],
     root: Path,
+    unresolved_calls: Optional[Dict[FunctionNode, Set[str]]] = None,
 ) -> Tuple[CallGraph, LinenoIndex, ImportMap]:
     """
     Build the intra-project call graph, lineno index, and import map.
@@ -120,6 +121,12 @@ def build_call_graph(
                  Includes nested functions and the 0 → ("<module>", None) sentinel.
         imp_map: ImportMap — per-file {local_name → abs_source_file} for
                  project-local imports resolved at the top-level of each file.
+
+    If unresolved_calls is given, it is filled with {caller → method names} for
+    attribute calls (`x.m()`, `self.attr.m()`, `super().m()`) that couldn't be
+    resolved to a project function, excluding calls rooted at a non-project
+    import (`os.path.join()`, `requests.get()`). Reachability uses it to report
+    code such calls might reach as unknown rather than unreachable.
     """
     root = Path(root).resolve()
     files = [Path(f).resolve() for f in py_files]
@@ -155,11 +162,15 @@ def build_call_graph(
             file=fstr,
             file_imports=imp_map.get(fstr, {}),
             project_functions=project_functions,
+            external_names=_imported_names(tree) - set(imp_map.get(fstr, {})),
         )
         visitor.visit(tree)
 
         for fn, callees in visitor.graph.items():
             graph.setdefault(fn, set()).update(callees)
+        if unresolved_calls is not None:
+            for fn, names in visitor.unresolved.items():
+                unresolved_calls.setdefault(fn, set()).update(names)
 
         lineno[fstr] = visitor.lineno_index
 
@@ -351,6 +362,19 @@ def _collect_file_imports(
     return result
 
 
+def _imported_names(tree: ast.AST) -> Set[str]:
+    """Local names bound by top-level imports (`import a.b` binds `a`)."""
+    names: Set[str] = set()
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                names.add(alias.asname or alias.name)
+    return names
+
+
 def _collect_exportable_names(tree: ast.AST) -> Set[str]:
     """
     Return qualified names of functions importable from this file:
@@ -400,10 +424,13 @@ class _FileVisitor(ast.NodeVisitor):
         file: str,
         file_imports: Dict[str, str],             # local_name → source_file
         project_functions: Dict[str, Set[str]],   # source_file → {qualified_name}
+        external_names: Optional[Set[str]] = None,  # names imported from outside the project
     ) -> None:
         self._file = file
         self._file_imports = file_imports
         self._project_functions = project_functions
+        self._external_names = external_names or set()
+        self.unresolved: Dict[FunctionNode, Set[str]] = {}
 
         self._class_stack: List[str] = []
         self._func_stack: List[str] = []
@@ -453,7 +480,18 @@ class _FileVisitor(ast.NodeVisitor):
             callee = self._resolve_call(node)
             if callee is not None:
                 self.graph.setdefault(caller, set()).add(callee)
+            elif isinstance(node.func, ast.Attribute) and not self._external_root(node.func):
+                self.unresolved.setdefault(caller, set()).add(node.func.attr)
         self.generic_visit(node)
+
+    def _external_root(self, func: ast.Attribute) -> bool:
+        """True if the call is rooted at a non-project import or a literal (`"".join`)."""
+        value = func.value
+        while isinstance(value, ast.Attribute):
+            value = value.value
+        if isinstance(value, (ast.Constant, ast.JoinedStr, ast.List, ast.Dict, ast.Tuple, ast.Set)):
+            return True
+        return isinstance(value, ast.Name) and value.id in self._external_names
 
     def _resolve_call(self, node: ast.Call) -> Optional[FunctionNode]:
         func = node.func
