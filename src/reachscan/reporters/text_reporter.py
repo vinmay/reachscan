@@ -42,10 +42,15 @@ def _render_finding(item: dict, lines: List[str], show_path: bool, show_state_pr
         elif state == "no_entry_points":
             state_prefix = "NO_ENTRY_POINTS  "
 
+    suppression = finding.get("suppression")
+    if suppression:
+        state_prefix = "SUPPRESSED  " + state_prefix
     lines.append(
         f"  [{risk_level}] {state_prefix}{finding.get('capability')} via {finding.get('evidence')} "
         f"({detector} @ {location})"
     )
+    if suppression:
+        lines.append(f"    suppressed: {suppression['reason']} (line {suppression['line']}; doesn't affect the exit code)")
 
     if show_path and state == "reachable":
         path = finding.get("reachability_path") or []
@@ -103,7 +108,11 @@ def _render_annotation_mismatches(results: Dict[str, Any], lines: List[str], exp
         declared = m["declared"]
         observed = m["observed"]
         claim = f"{declared['hint']}: {str(declared['value']).lower()}"
-        lines.append(f"  [{m['risk_level'].upper()}] {m['tool']} declares {claim}")
+        suppressed = "SUPPRESSED  " if m.get("suppression") else ""
+        lines.append(f"  [{m['risk_level'].upper()}] {suppressed}{m['tool']} declares {claim}")
+        if m.get("suppression"):
+            lines.append(f"    suppressed: {m['suppression']['reason']} "
+                         f"(line {m['suppression']['line']}; doesn't affect the exit code)")
         where = _location(observed['file'], observed['lineno'])
         if observed.get("send_kind"):
             lines.append(f"    reaches outbound {observed['send_kind']} call: {observed['evidence']} ({where})")
@@ -191,6 +200,13 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
 
     _render_annotation_mismatches(results, lines, explain)
 
+    suppression_warnings = results.get("suppression_warnings", [])
+    if suppression_warnings:
+        lines += ["Suppression Warnings", "-" * 20]
+        for w in suppression_warnings:
+            lines.append(f"  {_location(w['file'], w['lineno'])}: {w['message']}")
+        lines.append("")
+
     findings = results.get("findings", [])
     all_states = {item["finding"].get("reachability") for item in findings}
     has_reachability = bool(all_states & {"reachable", "unreachable", "unknown", "module_level"})
@@ -211,10 +227,13 @@ def human_report(results: Dict[str, Any], explain: bool = False) -> str:
         if unknown:
             lines.append(
                 f"  {len(unknown):>4} unknown       — reachability not determined "
-                "(dynamic dispatch or parse failure)"
+                "(unresolved method calls, dynamic dispatch, or parse failure)"
             )
         if no_entry:
             lines.append(f"  {len(no_entry):>4} no entry points — no LLM entry points detected for this code")
+        suppressed = sum(1 for f in findings if f["finding"].get("suppression"))
+        if suppressed:
+            lines.append(f"  {suppressed:>4} suppressed    — allowed by a reachscan:allow comment (also counted above)")
         lines.append("")
 
         # Reachable Findings

@@ -4,6 +4,12 @@ All notable changes to reachscan are documented here. This project follows [Sema
 
 ## [Unreleased]
 
+### Added
+
+- **Inline suppressions.** `# reachscan:allow-<capability> <reason>` (Python) and `// reachscan:allow-<capability> <reason>` (TypeScript/JavaScript), on the finding's line or on a comment line directly above it. A reason is required; a tag without one, with an unknown capability, or with no code after it is ignored and listed under `suppression_warnings` (JSON), "Suppression Warnings" (text), and a SARIF tool notification. Suppressed findings stay in the output, marked with the reason (`suppression` in JSON, `SUPPRESSED` in text, an in-source `suppressions` entry in SARIF), and don't affect the exit code. They still count toward combined risks.
+- **Mismatch suppressions.** `reachscan:allow-mismatch <reason>` on a tool's decorator or `types.Tool(...)` line (or a comment line directly above) accepts an annotation mismatch. Suppressing the sink with `allow-<capability>` doesn't suppress the mismatch: they're separate claims.
+- **JSON schema 1.2** (additive): `suppression` on findings and mismatches, and top-level `suppression_warnings`.
+
 ### Changed
 
 - **Annotation mismatches now count toward the exit code.** A mismatch at or above the `--severity` threshold exits 1, like a reachable finding: high mismatches fail the scan by default, medium ones under `--severity medium`, and `--severity none` still always exits 0. Every mismatch carries the call path from the tool to the contradicting sink, and one without a path never gates. **This can turn green CI runs red**, so it ships as a minor version.

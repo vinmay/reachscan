@@ -259,7 +259,15 @@ def _finding_result(
     flow = _code_flow(finding, locator)
     if flow:
         result["codeFlows"] = [flow]
+    _add_suppression(result, finding)
     return result
+
+
+def _add_suppression(result: Dict[str, Any], item: Dict[str, Any]) -> None:
+    """An inline reachscan:allow-* comment becomes an in-source SARIF suppression."""
+    suppression = item.get("suppression")
+    if suppression:
+        result["suppressions"] = [{"kind": "inSource", "justification": suppression["reason"]}]
 
 
 def _pick_anchor(findings: List[Dict[str, Any]], capability: str) -> Optional[Dict[str, Any]]:
@@ -383,6 +391,7 @@ def _mismatch_result(
     }
     if MISMATCH_RULE_ID in rule_index:
         result["ruleIndex"] = rule_index[MISMATCH_RULE_ID]
+    _add_suppression(result, mismatch)
     return result
 
 
@@ -470,6 +479,13 @@ def build_sarif(results: Dict[str, Any], include_unreachable: bool = False) -> D
         },
     }
     notifications = _no_entry_point_notifications(results, omitted_by_language)
+    for warning in results.get("suppression_warnings", []):
+        notifications.append({
+            "level": "warning",
+            "message": {"text": warning["message"]},
+            "descriptor": {"id": "reachscan/invalid-suppression"},
+            "locations": [{"physicalLocation": locator.physical(warning["file"], warning["lineno"])}],
+        })
     if notifications:
         run["invocations"][0]["toolExecutionNotifications"] = notifications
     if root is not None:

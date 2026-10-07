@@ -209,6 +209,9 @@ class ToolTarget:
     # (its branch plus shared setup). Sinks directly inside the handler count
     # only within these ranges. None means the whole entry function.
     entry_line_ranges: Optional[List[Tuple[int, int]]] = None
+    # Where the tool is declared: (file, first line, last line). An
+    # allow-mismatch suppression must target a line in this range.
+    registration: Optional[Tuple[str, int, int]] = None
 
 
 @dataclass
@@ -452,6 +455,7 @@ def _lowlevel_targets(
                 reach=reach,
                 dispatch="lowlevel",
                 entry_line_ranges=_line_ranges(stmts),
+                registration=(file, tool.lineno, tool.lineno),
             ))
     return targets
 
@@ -459,6 +463,16 @@ def _lowlevel_targets(
 # ---------------------------------------------------------------------------
 # Main pass
 # ---------------------------------------------------------------------------
+
+def _decorator_span(file: str, def_line: int) -> Tuple[int, int]:
+    """(first decorator line, def line) for the function defined at def_line."""
+    tree = _parse_file(file)
+    if tree is not None:
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.lineno == def_line:
+                return min([d.lineno for d in node.decorator_list] or [def_line]), def_line
+    return def_line, def_line
+
 
 def _decorator_targets(py_entry_points: list, index: ReachabilityIndex) -> List[ToolTarget]:
     targets = []
@@ -472,6 +486,7 @@ def _decorator_targets(py_entry_points: list, index: ReachabilityIndex) -> List[
             entry_node=index.entry_nodes[idx],
             reach=index.reached[idx],
             dispatch="decorator",
+            registration=(ep.file, *_decorator_span(ep.file, ep.lineno)),
         ))
     return targets
 
@@ -554,6 +569,7 @@ def find_annotation_mismatches(
                     "reachability_path": [qual for _file, qual in path_nodes],
                     "reachability_path_locations": _path_locations(path_nodes, lineno_index),
                     "_locations_by_finding": {},
+                    "_registration": target.registration,
                     "message": _message(target.tool, hint, value, capability, evidence, send_kind),
                     "mismatch_id": hashlib.sha1(
                         f"{target.tool}|{ep.file}|{rule}".encode()

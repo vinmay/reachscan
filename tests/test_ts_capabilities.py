@@ -434,7 +434,7 @@ def test_ts_function_findings_without_entry_points_are_no_entry_points(tmp_path)
 
 def test_ts_findings_in_json(ts_project):
     report = json.loads(json_report(scan_path(ts_project)))
-    assert report["schema_version"] == "1.1"
+    assert report["schema_version"] == "1.2"
     evidence = {e["finding"]["evidence"] for e in report["findings"]}
     assert {"child_process.execSync()", "process.env.SERVICE_API_KEY"} <= evidence
     for e in report["findings"]:
